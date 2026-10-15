@@ -1,0 +1,5 @@
+codex_accounts: [codex01]
+games: [ar25]
+tag: twma_v1.61
+reasoning_effort: max
+model: gpt-6-astra
