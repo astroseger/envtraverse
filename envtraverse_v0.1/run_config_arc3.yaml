@@ -1,0 +1,12 @@
+agent: agent_v1
+environment: arc3
+environment_parameters:
+  competition: false
+  tag: api-test
+environment_variables:
+  - ARC_API_KEY
+
+games: [ls20]
+codex_accounts: [codex01]
+model: gpt-5.6-sol
+reasoning_effort: max

@@ -1,0 +1,102 @@
+agent: agent_v1
+environment: terminal_bench
+
+server_mounts:
+  - source: ./run_tb/socket
+    target: /run/terminal-bench
+
+games:
+  - terminal-bench-2.1-adaptive-rejection-sampler
+  - terminal-bench-2.1-bn-fit-modify
+  - terminal-bench-2.1-break-filter-js-from-html
+  - terminal-bench-2.1-build-cython-ext
+  - terminal-bench-2.1-build-pmars
+  - terminal-bench-2.1-build-pov-ray
+  - terminal-bench-2.1-caffe-cifar-10
+  - terminal-bench-2.1-cancel-async-tasks
+  - terminal-bench-2.1-chess-best-move
+  - terminal-bench-2.1-circuit-fibsqrt
+  - terminal-bench-2.1-cobol-modernization
+  - terminal-bench-2.1-code-from-image
+  - terminal-bench-2.1-compile-compcert
+  - terminal-bench-2.1-configure-git-webserver
+  - terminal-bench-2.1-constraints-scheduling
+  - terminal-bench-2.1-count-dataset-tokens
+  - terminal-bench-2.1-crack-7z-hash
+  - terminal-bench-2.1-custom-memory-heap-crash
+  - terminal-bench-2.1-db-wal-recovery
+  - terminal-bench-2.1-distribution-search
+  - terminal-bench-2.1-dna-assembly
+  - terminal-bench-2.1-dna-insert
+  - terminal-bench-2.1-extract-elf
+  - terminal-bench-2.1-extract-moves-from-video
+  - terminal-bench-2.1-feal-differential-cryptanalysis
+  - terminal-bench-2.1-feal-linear-cryptanalysis
+  - terminal-bench-2.1-filter-js-from-html
+  - terminal-bench-2.1-financial-document-processor
+  - terminal-bench-2.1-fix-code-vulnerability
+  - terminal-bench-2.1-fix-git
+  - terminal-bench-2.1-fix-ocaml-gc
+  - terminal-bench-2.1-gcode-to-text
+  - terminal-bench-2.1-git-leak-recovery
+  - terminal-bench-2.1-git-multibranch
+  - terminal-bench-2.1-gpt2-codegolf
+  - terminal-bench-2.1-headless-terminal
+  - terminal-bench-2.1-hf-model-inference
+  - terminal-bench-2.1-install-windows-3.11
+  - terminal-bench-2.1-kv-store-grpc
+  - terminal-bench-2.1-large-scale-text-editing
+  - terminal-bench-2.1-largest-eigenval
+  - terminal-bench-2.1-llm-inference-batching-scheduler
+  - terminal-bench-2.1-log-summary-date-ranges
+  - terminal-bench-2.1-mailman
+  - terminal-bench-2.1-make-doom-for-mips
+  - terminal-bench-2.1-make-mips-interpreter
+  - terminal-bench-2.1-mcmc-sampling-stan
+  - terminal-bench-2.1-merge-diff-arc-agi-task
+  - terminal-bench-2.1-model-extraction-relu-logits
+  - terminal-bench-2.1-modernize-scientific-stack
+  - terminal-bench-2.1-mteb-leaderboard
+  - terminal-bench-2.1-mteb-retrieve
+  - terminal-bench-2.1-multi-source-data-merger
+  - terminal-bench-2.1-nginx-request-logging
+  - terminal-bench-2.1-openssl-selfsigned-cert
+  - terminal-bench-2.1-overfull-hbox
+  - terminal-bench-2.1-password-recovery
+  - terminal-bench-2.1-path-tracing
+  - terminal-bench-2.1-path-tracing-reverse
+  - terminal-bench-2.1-polyglot-c-py
+  - terminal-bench-2.1-polyglot-rust-c
+  - terminal-bench-2.1-portfolio-optimization
+  - terminal-bench-2.1-protein-assembly
+  - terminal-bench-2.1-prove-plus-comm
+  - terminal-bench-2.1-pypi-server
+  - terminal-bench-2.1-pytorch-model-cli
+  - terminal-bench-2.1-pytorch-model-recovery
+  - terminal-bench-2.1-qemu-alpine-ssh
+  - terminal-bench-2.1-qemu-startup
+  - terminal-bench-2.1-query-optimize
+  - terminal-bench-2.1-raman-fitting
+  - terminal-bench-2.1-regex-chess
+  - terminal-bench-2.1-regex-log
+  - terminal-bench-2.1-reshard-c4-data
+  - terminal-bench-2.1-rstan-to-pystan
+  - terminal-bench-2.1-sam-cell-seg
+  - terminal-bench-2.1-sanitize-git-repo
+  - terminal-bench-2.1-schemelike-metacircular-eval
+  - terminal-bench-2.1-sparql-university
+  - terminal-bench-2.1-sqlite-db-truncate
+  - terminal-bench-2.1-sqlite-with-gcov
+  - terminal-bench-2.1-torch-pipeline-parallelism
+  - terminal-bench-2.1-torch-tensor-parallelism
+  - terminal-bench-2.1-train-fasttext
+  - terminal-bench-2.1-tune-mjcf
+  - terminal-bench-2.1-video-processing
+  - terminal-bench-2.1-vulnerable-secret
+  - terminal-bench-2.1-winning-avg-corewars
+  - terminal-bench-2.1-write-compressor
+
+codex_accounts: [codex01]
+codex_account_fast_service_tier: true
+model: gpt-5.6-sol
+reasoning_effort: max

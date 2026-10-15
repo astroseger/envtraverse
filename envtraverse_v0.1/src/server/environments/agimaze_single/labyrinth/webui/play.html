@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AGI Maze — Play</title>
+  <link rel="stylesheet" href="/webui/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>
+            <div class="h1">Play</div>
+            <div class="small">Human mode</div>
+          </div>
+        </div>
+        <div class="row" style="align-items:center">
+          <label class="small" style="margin:0 8px 0 0">Lang</label>
+          <select id="langGlobal" style="width:86px">
+            <option value="en" selected>en</option>
+            <option value="ru">ru</option>
+          </select>
+          <a class="btn" href="/">Home</a>
+          <button id="btnNew" class="btn primary">New game</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <details class="card" style="margin-bottom:14px">
+      <summary class="small">Game description</summary>
+      <pre id="description" class="map" style="margin-top:10px; white-space:pre-wrap"></pre>
+    </details>
+
+    <details class="card" style="margin-bottom:14px">
+      <summary class="small">Page info</summary>
+      <pre id="pageInfo" class="map" style="margin-top:10px; white-space:pre-wrap"></pre>
+    </details>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Settings</h2>
+
+        <div class="row">
+          <div style="flex:1;min-width:240px">
+            <label>Group</label>
+            <select id="group">
+              <option value="TUTORIAL">TUTORIAL</option>
+              <option value="TRAINING">TRAINING</option>
+              <option value="CLASSIC">CLASSIC</option>
+              <option value="EXTENDED">EXTENDED</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+
+        <div class="row" style="margin-top:10px">
+          <div style="flex:1;min-width:200px">
+            <label>Seed (optional)</label>
+            <input id="seed" placeholder="e.g. 12345" />
+            <div class="small">Overrides rng.seed in the selected config/bundle.</div>
+          </div>
+        </div>
+
+        <div id="tutorialBox" class="row" style="margin-top:10px">
+          <div style="flex:1;min-width:240px">
+            <label>Stage</label>
+            <select id="tutorialStage"></select>
+          </div>
+        </div>
+
+        <div id="trainingBox" class="row" style="margin-top:10px; display:none">
+          <div style="flex:1;min-width:240px">
+            <label>Training series</label>
+            <select id="series"></select>
+          </div>
+        </div>
+
+        <div id="trainingStageBox" class="row" style="margin-top:10px; display:none">
+          <div style="flex:1;min-width:240px">
+            <label>Stage</label>
+            <select id="stage"></select>
+          </div>
+        </div>
+
+        <div id="classicBox" style="margin-top:10px; display:none">
+          <div class="row">
+            <div style="flex:1;min-width:240px">
+              <label>Difficulty</label>
+              <select id="classicDiff"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div style="flex:1;min-width:240px">
+              <label>Elements</label>
+              <select id="classicElem"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div style="flex:1;min-width:240px">
+              <label>Size</label>
+              <select id="classicSize"></select>
+            </div>
+          </div>
+        </div>
+
+        <div id="extendedBox" style="margin-top:10px; display:none">
+          <div class="row">
+            <div style="flex:1;min-width:240px">
+              <label>Extension</label>
+              <select id="extKind"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div style="flex:1;min-width:240px">
+              <label>Stage</label>
+              <select id="extStage"></select>
+            </div>
+          </div>
+        </div>
+
+        <div id="browseBox" class="row" style="margin-top:10px;display:none">
+          <div style="flex:1;min-width:240px">
+            <label>Path (Other)</label>
+            <input id="path" placeholder="e.g. ..." />
+            <div class="small">This should point to a leaf folder under packs/&lt;GROUP&gt;.</div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <button id="btnStart" class="btn primary">Start</button>
+          <span id="status" class="small"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Game</h2>
+        <div class="gameStack">
+          <pre id="map" class="map">(no game)</pre>
+
+          <div style="margin-top:12px">
+            <div class="row" style="gap:10px;margin-bottom:10px; flex-wrap: wrap;">
+              <span class="pill">session: <span id="sid" class="kbd">-</span></span>
+              <span class="pill">inv: <span id="inv" class="kbd">-</span></span>
+              <span class="pill" id="res" style="display:none">res: <span id="resText" class="kbd">-</span></span>
+              <span class="pill" id="info" style="display:none">info: <span id="infoText" class="kbd">-</span></span>
+            </div>
+            <div class="actions" id="actions"></div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:12px 0" />
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+
+      </section>
+    </div>
+  </main>
+
+  <script src="/webui/app.js"></script>
+</body>
+</html>

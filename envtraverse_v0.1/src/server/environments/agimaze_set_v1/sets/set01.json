@@ -1,0 +1,226 @@
+[
+  {
+    "path": "TUTORIAL/STAGE-01/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-02/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-03/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-04/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-05/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-06/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TUTORIAL/STAGE-07/0000.json",
+    "tutorial": true
+  },
+  {
+    "path": "TRAINING/S0-keys/STAGE-01/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S0-keys/STAGE-06/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S1-rivers/STAGE-01/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S1-rivers/STAGE-06/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S2-pits/STAGE-01/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S2-pits/STAGE-06/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S3-full/STAGE-01/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S3-full/STAGE-05/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "TRAINING/S3-full/STAGE-06/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/EASY/rivers+pits/4x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/EASY/rivers+pits/5x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/EASY/rivers+pits/5x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/EASY/rivers+pits/6x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/MEDIUM/rivers+pits/5x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/MEDIUM/rivers+pits/5x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/MEDIUM/rivers+pits/6x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/MEDIUM/rivers+pits/7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/pits/6x8/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/pits/7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers+pits/6x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers+pits/7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers+pits/7x8/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers/5x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers/7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "CLASSIC/HARD/rivers/8x8/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-01-4x4/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-02-4x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-03-5x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-04-5x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-05-5x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-06-6x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-07-6x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/boat/STAGE-08-7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-01-4x4/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-02-4x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-03-5x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-04-5x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-05-5x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-06-6x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-07-6x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/flashlight/STAGE-08-7x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-01-4x4/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-02-4x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-03-5x5/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-04-5x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-05-5x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-06-6x6/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-07-6x7/0000.json",
+    "tutorial": false
+  },
+  {
+    "path": "EXTENDED/grenades/STAGE-08-7x7/0000.json",
+    "tutorial": false
+  }
+]

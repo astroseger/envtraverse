@@ -1,0 +1,2 @@
+# Environment-server client: Python standard library only.
+# On the HOST install the distribution with its [host] extra instead.
