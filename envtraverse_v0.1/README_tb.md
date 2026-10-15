@@ -207,6 +207,9 @@ Socket access uses a private directory and a 0600 socket. Only the socket direct
 is mounted into the server; task checkouts and private results stay on the host.
 Docker's own image/cache storage remains managed by Docker.
 
+See the [analysis guide](analysis_scripts/README.md#terminal-bench) for reports
+from the completed experiment.
+
 ## Time limits and failure handling
 
 Native **solving and verifier limits are preserved**. Thinking and pauses between
