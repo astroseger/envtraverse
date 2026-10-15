@@ -1,4 +1,4 @@
-# BASELINE1 Agent Source with Docker Automation
+# EnvTraverse
 
 Each active game runs in its own server container and agent container. Both run
 controllers share two Docker networks and one proxy across the experiment.
