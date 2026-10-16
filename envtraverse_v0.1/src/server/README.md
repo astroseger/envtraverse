@@ -6,10 +6,10 @@ and terminal status. To implement an environment, see
 [Environments](environments/README.md). For the overall interaction model, see
 the [framework README](../../README.md).
 
-Each server serves one task, with one start attempt and one session token. The
-runners create a server for each active task and pass its URL and a public task
-alias to the agent's preparation hook. The real task ID stays in the server's
-configuration. A new run requires a new server.
+Each server manages one session and calls the environment's initialization method
+at most once. The runners create a server for each active task and pass its URL
+and a public task alias to the agent's preparation hook. The real task ID stays
+in the server's configuration. A new run requires a new server.
 
 ## Endpoints
 

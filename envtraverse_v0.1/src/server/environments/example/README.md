@@ -9,9 +9,9 @@ in its constructor and owns one counter. `start_environment()` returns
 `StartResult(environment_description=..., observation=...)`. Call `move()`
 on the manager to advance the counter and `stop()` to close it.
 
-Only one start attempt is allowed per instance. `stop()` is idempotent, and
-moves before startup or after stop are rejected. The `observation()` method
-is an implementation helper, not part of the shared contract.
+`stop()` is idempotent, and moves before startup or after stop are rejected.
+The `observation()` method is an implementation helper, not part of the shared
+contract.
 
 No separate game class, registry, inheritance, HTTP code, or artifact encoding
 is needed. See [Adding environments](../README.md) for the adapter interface and

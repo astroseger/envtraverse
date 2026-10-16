@@ -56,7 +56,6 @@ One manager owns the entire set as a single logical game. It creates a fresh
 `agimaze_single.EnvironmentManager` for each maze and stops it before advancing.
 At most one child is active, so every maze reuses the configured backend port.
 `stop()` closes the active child, including on shutdown or after a failed start.
-Starting a second set on the same manager is rejected.
 
 See the [analysis guide](../../../../analysis_scripts/README.md#agi-maze-sets)
 for curriculum reports and replay of the final maze.

@@ -63,9 +63,8 @@ components. An observation can contain several files or none. The server handles
 encoding them for HTTP. Termination means that no further actions are accepted;
 the environment defines how success is reported.
 
-Put backend initialization in `start_environment()`. Each manager serves one
-session and permits one start attempt. Make `stop()` safe before startup, after
-failure, and when called repeatedly. A new run gets a new manager and server.
+Put backend initialization in `start_environment()`. Make `stop()` safe before
+startup, after failure, and when called repeatedly.
 
 ## Describe the task and its information boundary
 

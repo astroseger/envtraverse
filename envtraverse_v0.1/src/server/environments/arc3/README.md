@@ -24,9 +24,8 @@ the backend, opens the competition scorecard, and returns the description and
 initial observation. The manager owns the SDK environment wrapper and counters;
 the server calls its `move(action)` directly.
 
-Only one start attempt is allowed. `stop()` releases the wrapper and finalizes
-the game's scorecard once, including after a startup failure. It is safe to call
-before startup or repeatedly. A new game run needs a new manager.
+`stop()` releases the wrapper and finalizes the game's scorecard once, including
+after a startup failure. It is safe to call before startup or repeatedly.
 
 Parameters:
 
