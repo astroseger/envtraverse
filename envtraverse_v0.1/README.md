@@ -1,9 +1,8 @@
 # EnvTraverse
 
 EnvTraverse is an experimental framework for studies of agents across
-interactive environments. It separates the agent's problem-solving strategy from
-the environment's task definition, so an environment-agnostic agent can be
-evaluated across different tasks without changing its code or prompts.
+interactive environments. It lets you evaluate the same agent in different
+environments without changing its code or prompts.
 
 For setup and examples, see [Running experiments](docs/running/README.md).
 
