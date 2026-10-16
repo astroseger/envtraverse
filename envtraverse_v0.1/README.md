@@ -76,8 +76,9 @@ integrate a new agent.
 The supplied runners are oriented toward Codex:
 
 - [run_controller.py](run_controller.py) uses Codex subscription accounts.
-- [run_controller_with_api_key.py](run_controller_with_api_key.py) uses Codex with
-  an OpenAI API key.
+- [run_controller_with_api_key.py](run_controller_with_api_key.py) runs agents
+  using an OpenAI API key, with authentication currently configured for the
+  bundled Codex agents.
 - [run_controller_tb.py](run_controller_tb.py) wraps the subscription runner with
   the additional host infrastructure required by Terminal-Bench.
 
