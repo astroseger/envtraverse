@@ -1,9 +1,8 @@
 # Run analysis
 
 These scripts extract recorded actions and token usage, replay game runs, and
-produce reports. Run the commands below from `envtraverse_v0.1/`, the parent of
-this directory. See [Running experiments](../docs/running/README.md) for setup
-and execution examples.
+produce reports. Run the examples from this directory. See
+[Running experiments](../docs/running/README.md) for setup and execution examples.
 
 Most commands take a run directory such as `/path/to/experiment/run`.
 The Terminal-Bench report takes the **parent experiment directory** containing
@@ -18,7 +17,7 @@ archiving results.
 Extract accepted environment actions:
 
 ~~~bash
-python3 analysis_scripts/extract_raw_actions.py /path/to/run
+python3 extract_raw_actions.py /path/to/run
 ~~~
 
 This reads `<alias>/server/server.log` and writes `raw_actions.json`. Each
@@ -30,7 +29,7 @@ Malformed action/session records are errors.
 Extract token usage:
 
 ~~~bash
-python3 analysis_scripts/extract_raw_cost_tokens.py /path/to/run
+python3 extract_raw_cost_tokens.py /path/to/run
 ~~~
 
 This uses the server logs to identify sessions and reads their agent logs. It
@@ -51,14 +50,14 @@ the Python standard library and work across environments.
 Install the replay dependencies in the host Python environment:
 
 ~~~bash
-python3 -m pip install -r src/server/environments/arc3/requirements.txt
+python3 -m pip install -r ../src/server/environments/arc3/requirements.txt
 ~~~
 
 Refresh token counts, extract actions, replay games, and print the report:
 
 ~~~bash
-python3 analysis_scripts/arc3/analyse_runs.py /path/to/run
-python3 analysis_scripts/arc3/print_results_md_cost_v2.py /path/to/run
+python3 arc3/analyse_runs.py /path/to/run
+python3 arc3/print_results_md_cost_v2.py /path/to/run
 ~~~
 
 The analysis command writes `raw_cost_tokens.json`, `raw_actions.json`, and
@@ -67,7 +66,7 @@ and token counts and prints completion, RHAE, action counts, and normalized cost
 tokens. It accepts multiple run directories:
 
 ~~~bash
-python3 analysis_scripts/arc3/print_results_md_cost_v2.py /path/to/first/run /path/to/second/run
+python3 arc3/print_results_md_cost_v2.py /path/to/first/run /path/to/second/run
 ~~~
 
 Replay uses the host's ARC SDK in normal mode with seed 0. It uses recorded IDs
@@ -83,13 +82,13 @@ stops if extraction fails, and replay exits nonzero if any game fails.
 To refresh only actions and replayed scorecards:
 
 ~~~bash
-python3 analysis_scripts/arc3/generate_scorecards_by_replay.py /path/to/run
+python3 arc3/generate_scorecards_by_replay.py /path/to/run
 ~~~
 
 To count attempts and actions directly from saved observations:
 
 ~~~bash
-python3 analysis_scripts/arc3/count_level_attempts_dirs.py /path/to/run
+python3 arc3/count_level_attempts_dirs.py /path/to/run
 ~~~
 
 The counter reads `<alias>/observations/step_*_metadata.txt` and prints entries
@@ -102,7 +101,7 @@ It needs no SDK or generated scorecards and modifies no files.
 Refresh analysis and print a report:
 
 ~~~bash
-python3 analysis_scripts/agimaze_single/print_results_md_v2.py /path/to/run
+python3 agimaze_single/print_results_md_v2.py /path/to/run
 ~~~
 
 The report first runs the analyser, which refreshes action/token extraction and
@@ -124,7 +123,7 @@ counts, the penalized step ratio, and normalized cost tokens. The ratio is
 To refresh results without printing a report:
 
 ~~~bash
-python3 analysis_scripts/agimaze_single/analyse_runs.py /path/to/run
+python3 agimaze_single/analyse_runs.py /path/to/run
 ~~~
 
 ## AGI Maze sets
@@ -132,7 +131,7 @@ python3 analysis_scripts/agimaze_single/analyse_runs.py /path/to/run
 For `agimaze_set_v1` runs:
 
 ~~~bash
-python3 analysis_scripts/agimaze_sets/print_ts_results_md_v2.py /path/to/run
+python3 agimaze_sets/print_ts_results_md_v2.py /path/to/run
 ~~~
 
 This refreshes extraction and evaluates only the **final maze of each set**.
@@ -157,7 +156,7 @@ Different sets targeting the same maze remain separate records.
 To generate these files without a report:
 
 ~~~bash
-python3 analysis_scripts/agimaze_sets/analyse_ts_runs.py /path/to/run
+python3 agimaze_sets/analyse_ts_runs.py /path/to/run
 ~~~
 
 ## Terminal-Bench
@@ -165,7 +164,7 @@ python3 analysis_scripts/agimaze_sets/analyse_ts_runs.py /path/to/run
 Wait for host-runtime grading to finish, then pass the experiment directory:
 
 ~~~bash
-python3 analysis_scripts/terminal_bench/print_results_md_cost.py /path/to/experiment
+python3 terminal_bench/print_results_md_cost.py /path/to/experiment
 ~~~
 
 The script refreshes `run/raw_cost_tokens.json` and reads
@@ -225,8 +224,8 @@ results.
 These commands read logs without modifying run files:
 
 ~~~bash
-python3 analysis_scripts/summarize_agent_logs_in_dir.py /path/to/run
-python3 analysis_scripts/recovery_warning.py /path/to/run
+python3 summarize_agent_logs_in_dir.py /path/to/run
+python3 recovery_warning.py /path/to/run
 ~~~
 
 The progress summary reads agent logs and prints iterations, observed global
@@ -244,9 +243,9 @@ directly under `<alias>/`.
 Replay one record from an action JSON file:
 
 ~~~bash
-python3 analysis_scripts/agimaze_single/replay_single.py \
+python3 agimaze_single/replay_single.py \
   /path/to/raw_actions.json TUTORIAL/STAGE-01/0000.json
-python3 analysis_scripts/agimaze_single/replay_single_terminal.py \
+python3 agimaze_single/replay_single_terminal.py \
   /path/to/raw_actions.json TUTORIAL/STAGE-01/0000.json
 ~~~
 

@@ -14,7 +14,7 @@ See the [framework README](envtraverse_v0.1/README.md) for setup and usage.
 
 ## Papers and supporting materials
 
-- **Improving Environment-Agnostic Coding Agents: The Role of Scaffolding** —
+- **[Improving Environment-Agnostic Coding Agents: The Role of Scaffolding](https://arxiv.org/abs/2610.22289)** —
   [supporting materials](papers/paper03/README.md)
 
 ## Citation
