@@ -1,7 +1,7 @@
 # EnvTraverse
 
 This repository is the project page for our experiments with environment-agnostic
-coding agents using our experimental framework, EnvTraverse.
+agents using our experimental framework, EnvTraverse.
 
 ## Framework
 
