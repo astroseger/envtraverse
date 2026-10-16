@@ -1,0 +1,8 @@
+[project]
+name = "labyrinth"
+version = "0.0.0"
+description = "Procedural generator + engine for the Labyrinth paper game"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

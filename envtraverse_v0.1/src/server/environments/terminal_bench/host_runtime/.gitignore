@@ -1,0 +1,4 @@
+.venv/
+.tb-data/
+*.generated.yaml
+__pycache__/

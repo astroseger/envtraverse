@@ -1,0 +1,215 @@
+{
+  "format": "labyrinth.bundle.v1",
+  "config": {
+    "version": 1,
+    "metadata": {
+      "note": "ext boat-01",
+      "max_steps": 50
+    },
+    "board": {
+      "n": 4,
+      "m": 4
+    },
+    "rng": {
+      "seed": 110012,
+      "algorithm": "py-random-v1"
+    },
+    "strategy": {
+      "name": "basic-v1",
+      "params": {}
+    },
+    "systems": {
+      "walls": {
+        "enabled": true,
+        "strategy": "degree-v1",
+        "target_mean_degree": 1.6,
+        "nonriver_engine_enabled": true,
+        "river_enabled": true,
+        "target_mean_river_walls": 0.3
+      },
+      "keys": true,
+      "treasure": true,
+      "exit_key": false,
+      "rivers": {
+        "enabled": true,
+        "strategy": "linear-v1",
+        "density": 0.35,
+        "mean_len": 1.4,
+        "scatter": 0.25,
+        "straight_bias": 2.0,
+        "adj_penalty": 0.4,
+        "source_dist_power": 3.0,
+        "allow_adjacent": true
+      },
+      "pits_cfg": {
+        "enabled": false,
+        "strategy": "cycles-v1",
+        "cycles": 2,
+        "cycle_len": 3,
+        "allow_on_river": false
+      },
+      "grenades": {
+        "enabled": false,
+        "strategy": "seal-cell-v1",
+        "extra_grenades": 1,
+        "max_walls_to_add": 3
+      },
+      "boats": {
+        "enabled": true,
+        "strategy": "river-exit-v1"
+      }
+    }
+  },
+  "generated": {
+    "board": {
+      "n": 4,
+      "m": 4,
+      "exit_edge": {
+        "cell": [
+          2,
+          3
+        ],
+        "dir": "right"
+      },
+      "walls": [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        [
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        [
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        [
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        [
+          [
+            3,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        [
+          [
+            3,
+            3
+          ],
+          [
+            2,
+            3
+          ]
+        ]
+      ],
+      "features": {
+        "2,3": [
+          {
+            "name": "river",
+            "kind": "source",
+            "flow": "up"
+          }
+        ],
+        "1,3": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "left"
+          }
+        ],
+        "1,2": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "left"
+          }
+        ],
+        "1,1": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "left"
+          }
+        ],
+        "1,0": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "down"
+          }
+        ],
+        "2,0": [
+          {
+            "name": "river",
+            "kind": "mouth",
+            "flow": null
+          }
+        ],
+        "0,1": [
+          {
+            "name": "key"
+          }
+        ],
+        "3,3": [
+          {
+            "name": "treasure"
+          }
+        ],
+        "0,2": [
+          {
+            "name": "boat"
+          }
+        ]
+      }
+    },
+    "start": {
+      "pos": [
+        2,
+        1
+      ],
+      "has_treasure": false,
+      "has_key": false,
+      "has_exit_key": false,
+      "has_boat": false,
+      "grenades": 0,
+      "flashlight": 0,
+      "blown": []
+    },
+    "goal": {
+      "require_key_for_treasure": false,
+      "require_exit_key_to_leave": false,
+      "must_exit_after_treasure": true
+    }
+  }
+}

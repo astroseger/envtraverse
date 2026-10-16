@@ -1,0 +1,1 @@
+You have not sent any environment actions since the previous continuation request. Continue working and send meaningful actions toward completing your task. If you do not make progress, the run will stop.

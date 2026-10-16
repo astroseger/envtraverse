@@ -1,0 +1,555 @@
+{
+  "format": "labyrinth.bundle.v1",
+  "config": {
+    "version": 1,
+    "metadata": {
+      "note": "ext boat-05",
+      "max_steps": 140
+    },
+    "board": {
+      "n": 5,
+      "m": 7
+    },
+    "rng": {
+      "seed": 150048,
+      "algorithm": "py-random-v1"
+    },
+    "strategy": {
+      "name": "basic-v1",
+      "params": {}
+    },
+    "systems": {
+      "walls": {
+        "enabled": true,
+        "strategy": "degree-v1",
+        "target_mean_degree": 1.6,
+        "nonriver_engine_enabled": true,
+        "river_enabled": true,
+        "target_mean_river_walls": 0.33
+      },
+      "keys": true,
+      "treasure": true,
+      "exit_key": true,
+      "rivers": {
+        "enabled": true,
+        "strategy": "linear-v1",
+        "density": 0.35,
+        "mean_len": 0.9,
+        "scatter": 0.25,
+        "straight_bias": 2.0,
+        "adj_penalty": 0.4,
+        "source_dist_power": 3.0,
+        "allow_adjacent": true
+      },
+      "pits_cfg": {
+        "enabled": true,
+        "strategy": "cycles-v1",
+        "cycles": 1,
+        "cycle_len": 3,
+        "allow_on_river": false
+      },
+      "grenades": {
+        "enabled": false,
+        "strategy": "seal-cell-v1",
+        "extra_grenades": 1,
+        "max_walls_to_add": 3
+      },
+      "boats": {
+        "enabled": true,
+        "strategy": "river-exit-v1"
+      }
+    }
+  },
+  "generated": {
+    "board": {
+      "n": 5,
+      "m": 7,
+      "exit_edge": {
+        "cell": [
+          0,
+          6
+        ],
+        "dir": "up"
+      },
+      "walls": [
+        [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            0,
+            3
+          ],
+          [
+            0,
+            4
+          ]
+        ],
+        [
+          [
+            0,
+            3
+          ],
+          [
+            1,
+            3
+          ]
+        ],
+        [
+          [
+            0,
+            4
+          ],
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            3
+          ],
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        [
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ]
+        ],
+        [
+          [
+            1,
+            4
+          ],
+          [
+            1,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            5
+          ],
+          [
+            1,
+            6
+          ]
+        ],
+        [
+          [
+            1,
+            5
+          ],
+          [
+            2,
+            5
+          ]
+        ],
+        [
+          [
+            1,
+            6
+          ],
+          [
+            1,
+            5
+          ]
+        ],
+        [
+          [
+            2,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        [
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        [
+          [
+            2,
+            5
+          ],
+          [
+            1,
+            5
+          ]
+        ],
+        [
+          [
+            2,
+            6
+          ],
+          [
+            3,
+            6
+          ]
+        ],
+        [
+          [
+            3,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        [
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        [
+          [
+            3,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        [
+          [
+            3,
+            2
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        [
+          [
+            3,
+            3
+          ],
+          [
+            4,
+            3
+          ]
+        ],
+        [
+          [
+            3,
+            6
+          ],
+          [
+            2,
+            6
+          ]
+        ],
+        [
+          [
+            3,
+            6
+          ],
+          [
+            4,
+            6
+          ]
+        ],
+        [
+          [
+            4,
+            2
+          ],
+          [
+            4,
+            3
+          ]
+        ],
+        [
+          [
+            4,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        [
+          [
+            4,
+            3
+          ],
+          [
+            4,
+            2
+          ]
+        ],
+        [
+          [
+            4,
+            4
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        [
+          [
+            4,
+            5
+          ],
+          [
+            4,
+            4
+          ]
+        ],
+        [
+          [
+            4,
+            6
+          ],
+          [
+            3,
+            6
+          ]
+        ]
+      ],
+      "features": {
+        "0,6": [
+          {
+            "name": "river",
+            "kind": "source",
+            "flow": "left"
+          }
+        ],
+        "0,5": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "down"
+          }
+        ],
+        "1,5": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "left"
+          }
+        ],
+        "1,4": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "down"
+          }
+        ],
+        "2,4": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "left"
+          }
+        ],
+        "2,3": [
+          {
+            "name": "river",
+            "kind": "mouth",
+            "flow": null
+          }
+        ],
+        "3,0": [
+          {
+            "name": "river",
+            "kind": "source",
+            "flow": "up"
+          }
+        ],
+        "2,0": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "up"
+          }
+        ],
+        "1,0": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "up"
+          }
+        ],
+        "0,0": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "right"
+          }
+        ],
+        "0,1": [
+          {
+            "name": "river",
+            "kind": "body",
+            "flow": "right"
+          }
+        ],
+        "0,2": [
+          {
+            "name": "river",
+            "kind": "mouth",
+            "flow": null
+          }
+        ],
+        "3,4": [
+          {
+            "name": "pit",
+            "next": [
+              3,
+              3
+            ],
+            "cycle_id": 0,
+            "idx_in_cycle": 0
+          }
+        ],
+        "3,3": [
+          {
+            "name": "pit",
+            "next": [
+              3,
+              5
+            ],
+            "cycle_id": 0,
+            "idx_in_cycle": 1
+          }
+        ],
+        "3,5": [
+          {
+            "name": "pit",
+            "next": [
+              3,
+              4
+            ],
+            "cycle_id": 0,
+            "idx_in_cycle": 2
+          }
+        ],
+        "0,4": [
+          {
+            "name": "key"
+          }
+        ],
+        "3,1": [
+          {
+            "name": "treasure"
+          }
+        ],
+        "1,6": [
+          {
+            "name": "exit_key"
+          }
+        ],
+        "4,3": [
+          {
+            "name": "boat"
+          }
+        ]
+      }
+    },
+    "start": {
+      "pos": [
+        2,
+        2
+      ],
+      "has_treasure": false,
+      "has_key": false,
+      "has_exit_key": false,
+      "has_boat": false,
+      "grenades": 0,
+      "flashlight": 0,
+      "blown": []
+    },
+    "goal": {
+      "require_key_for_treasure": false,
+      "require_exit_key_to_leave": true,
+      "must_exit_after_treasure": true
+    }
+  }
+}

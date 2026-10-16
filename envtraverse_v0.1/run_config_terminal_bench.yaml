@@ -1,0 +1,15 @@
+agent: agent_v1
+environment: terminal_bench
+
+server_mounts:
+  - source: ./run_tb/socket
+    target: /run/terminal-bench
+
+games:
+  - terminal-bench-2.1-fix-git
+  - terminal-bench-2.1-regex-log
+
+codex_accounts: [codex01]
+codex_account_fast_service_tier: true
+model: gpt-5.6-sol
+reasoning_effort: max

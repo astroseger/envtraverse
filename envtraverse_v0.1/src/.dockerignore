@@ -1,0 +1,6 @@
+**/__pycache__
+**/*.pyc
+**/host_runtime/.venv
+**/host_runtime/.tb-data
+**/host_runtime/*.generated.yaml
+**/host_runtime/tests

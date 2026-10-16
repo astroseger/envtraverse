@@ -1,0 +1,1 @@
+Keep working toward the goal described in `/observations/environment_description.md`. Re-read the file whenever you need a reminder.

@@ -1,0 +1,20 @@
+version = "1.0"
+
+[metadata]
+author_name = "Adapter smoke test"
+author_email = "smoke@example.invalid"
+difficulty = "easy"
+category = "software-engineering"
+tags = ["smoke-test"]
+
+[agent]
+timeout_sec = 120.0
+
+[verifier]
+timeout_sec = 30.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 512
+storage_mb = 1024
