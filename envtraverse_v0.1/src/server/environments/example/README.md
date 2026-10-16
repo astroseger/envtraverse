@@ -14,4 +14,6 @@ moves before startup or after stop are rejected. The `observation()` method
 is an implementation helper, not part of the shared contract.
 
 No separate game class, registry, inheritance, HTTP code, or artifact encoding
-is needed. See `../../README.md` for startup commands and the interface.
+is needed. See [Adding environments](../README.md) for the adapter interface and
+the [server README](../../README.md#try-the-protocol-locally) to try the counter
+over HTTP without an LLM.

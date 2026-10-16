@@ -1,5 +1,8 @@
 # Labyrinth sets (v1)
 
+For a complete run configuration, see
+[Running experiments](../../../../docs/running/README.md#agi-maze-labyrinth-sets).
+
 Each game is an ordered sequence of labyrinths from `sets/<game_id>.json`.
 The 233 bundled set definitions and the short `environment_description.md` are
 copied from `lab_general_baseline1_v2.11c`. The engine and maze packs are reused

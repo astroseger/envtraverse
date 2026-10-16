@@ -2,7 +2,8 @@
 
 These scripts extract recorded actions and token usage, replay game runs, and
 produce reports. Run the commands below from `envtraverse_v0.1/`, the parent of
-this directory. See the [framework README](../README.md) for running experiments.
+this directory. See [Running experiments](../docs/running/README.md) for setup
+and execution examples.
 
 Most commands take a run directory such as `/path/to/experiment/run`.
 The Terminal-Bench report takes the **parent experiment directory** containing

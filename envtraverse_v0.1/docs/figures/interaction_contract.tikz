@@ -1,0 +1,26 @@
+\begin{tikzpicture}[
+  x=1cm,y=1cm,
+  font=\sffamily\fontsize{10}{12}\selectfont,
+  flow/.style={-{Latex[length=2.4mm,width=1.6mm]},line width=0.7pt},
+  phase/.style={font=\sffamily\fontsize{10}{12}\selectfont\bfseries,align=center},
+  label/.style={align=center,inner sep=0.5mm}
+]
+\draw[rounded corners=1.8mm,line width=0.7pt] (0,0) rectangle (3.25,5.05);
+\draw[rounded corners=1.8mm,line width=0.7pt] (11.05,0) rectangle (14.30,5.05);
+\node[font=\sffamily\fontsize{12}{14}\selectfont\bfseries] at (1.625,2.92) {Agent};
+\node[align=center,text width=2.85cm,font=\sffamily\fontsize{9.5}{11.5}\selectfont] at (1.625,2.24) {Unchanged across\\environments};
+\node[font=\sffamily\fontsize{12}{14}\selectfont\bfseries] at (12.675,2.525) {Environment};
+
+\node[phase] at (7.15,4.57) {Initialization};
+\draw[flow] (11.05,3.77) -- (3.25,3.77);
+\node[label] at (7.15,4.08) {Description + optional files};
+
+\draw[dashed,line width=0.35pt] (3.62,3.07) -- (10.68,3.07);
+\node[phase] at (7.15,2.72) {Interaction};
+\node[font=\sffamily\fontsize{9}{11}\selectfont] at (7.15,2.35) {Repeated until termination};
+
+\draw[flow] (3.25,1.55) -- (11.05,1.55);
+\node[label] at (7.15,1.86) {JSON action};
+\draw[flow] (11.05,0.59) -- (3.25,0.59);
+\node[label] at (7.15,0.90) {Observation files + terminal status};
+\end{tikzpicture}

@@ -1,6 +1,9 @@
 # ARC3
 
-Install this environment's dependencies in the server's Python environment:
+For experiment commands, see
+[Running experiments](../../../../docs/running/README.md#arc-agi-3).
+The runner installs this adapter's dependencies in the server image. For a
+direct server launch, install them in the server's Python environment:
 
 ~~~bash
 python3 -m pip install -r src/server/environments/arc3/requirements.txt

@@ -1,5 +1,8 @@
 # Single labyrinth
 
+For experiment commands, see
+[Running experiments](../../../../docs/running/README.md#agi-maze-individual-labyrinths).
+
 The bundled labyrinth engine and game packs are under `labyrinth/`. This adapter
 uses Python's standard library. Each manager owns one game and one local engine
 process, created during `start_environment()` and released by `stop()`.
