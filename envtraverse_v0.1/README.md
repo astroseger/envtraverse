@@ -1,6 +1,6 @@
 # EnvTraverse
 
-EnvTraverse is an experimental framework for scientific studies of agents across
+EnvTraverse is an experimental framework for studies of agents across
 interactive environments. It separates the agent's problem-solving strategy from
 the environment's task definition, so an environment-agnostic agent can be
 evaluated across different tasks without changing its code or prompts.
