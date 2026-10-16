@@ -168,6 +168,9 @@ configurations enable it.
 
 ## Run with an API key
 
+API-key runs may be **substantially** more expensive than runs backed by
+authenticated Codex accounts.
+
 Use the same agent and environment configuration:
 
 ```bash
