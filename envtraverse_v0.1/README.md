@@ -68,8 +68,8 @@ agents provide their LLM with an environment-agnostic client that implements thi
 protocol and saves observations to files. The client is part of the agent; other
 agents can use their own client or issue HTTP requests directly.
 
-See [Agents](src/agents/README.md) for the bundled implementations and how to
-integrate a new agent.
+See [Agents](src/agents/README.md) for the included agent implementations and how
+to integrate a new agent.
 
 ## Current runners
 
