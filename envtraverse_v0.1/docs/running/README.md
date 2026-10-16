@@ -193,7 +193,6 @@ With the bundled agents, each task receives a generated alias and fresh files:
 | Path | Contents |
 | --- | --- |
 | `run/runner.log` | Task mapping, scheduling, and container launch log |
-| `run/docker_images.json` | Image tags used for the experiment |
 | `run/<alias>/run/` | Agent code, logs, and writable `agent_run/` workspace |
 | `run/<alias>/client/` | Client configuration and saved session state |
 | `run/<alias>/observations/` | Environment description, actions, and observation files |
