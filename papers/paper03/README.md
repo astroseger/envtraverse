@@ -1,8 +1,6 @@
 # Supporting materials for “Improving Environment-Agnostic Coding Agents: The Role of Scaffolding”
 
-**Paper:** arXiv link forthcoming.
-
-<!-- arXiv link template: [Paper](https://arxiv.org/abs/ARXIV_ID) -->
+**Paper:** [arXiv:2610.22289](https://arxiv.org/abs/2610.22289)
 
 ## Code and agents
 
