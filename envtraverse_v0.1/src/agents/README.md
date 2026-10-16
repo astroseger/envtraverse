@@ -14,11 +14,11 @@ agent connects to the framework.
 
 All three use Codex and provide an environment-agnostic client to the LLM.
 
-| Agent | Package | Scope |
-| --- | --- | --- |
-| Baseline | [agent_v1](agent_v1/) | Environment-agnostic |
-| Stop-and-report | [agent_v1_01_wstop](agent_v1_01_wstop/) | Environment-agnostic; changes the instruction for returning control |
-| Controlled_RESET | [test_arc3_agent_v1_02_wstop_wreset](test_arc3_agent_v1_02_wstop_wreset/) | ARC-AGI-3-specific reset management |
+| Agent | Scope |
+| --- | --- |
+| [agent_v1](agent_v1/) | Environment-agnostic |
+| [agent_v1_01_wstop](agent_v1_01_wstop/) | Environment-agnostic; changes the instruction for returning control |
+| [test_arc3_agent_v1_02_wstop_wreset](test_arc3_agent_v1_02_wstop_wreset/) | ARC-AGI-3-specific reset management |
 
 The agent controller starts Codex, supplies prompts, and resumes it as needed.
 Codex uses its workspace and the client to solve the task. The client saves the
