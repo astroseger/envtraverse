@@ -33,8 +33,8 @@ environment specification. The diagram and fuller discussion appear in
 ## Containers and experimental isolation
 
 Each active task runs an agent and an environment server in separate Docker
-containers, communicating over HTTP. The agent has its own workspace and no
-direct access to the environment implementation or private results.
+containers, communicating over HTTP. The agent can access the environment only
+through the defined interaction interface.
 
 The supplied runners intentionally restrict the agent's direct internet access
 to an allowlisted proxy for the model service. This helps prevent unintended
