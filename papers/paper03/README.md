@@ -18,6 +18,10 @@
 
 Full run artifacts will be available in a Zenodo archive. **Zenodo link: forthcoming.**
 
+The same files are temporarily available on
+[Dropbox](https://www.dropbox.com/scl/fo/xnwv1qwogcarbf5j5r02d/ABOcdRfxt9Y8bqbE-f-tNvw?rlkey=u955v50vcsdb63fl4hy750t4d&st=bgthrdx8&dl=0)
+while the upload to Zenodo completes due to slow upload speeds.
+
 <!-- Zenodo link template: [Full run artifacts](https://doi.org/10.5281/zenodo.RECORD_ID) -->
 
 ## Citation
