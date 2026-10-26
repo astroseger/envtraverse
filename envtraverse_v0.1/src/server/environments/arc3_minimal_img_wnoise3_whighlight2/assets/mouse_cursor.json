@@ -1,0 +1,40 @@
+{
+  "source_url": "https://commons.wikimedia.org/wiki/File:Black_Cursor.svg",
+  "source_download": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Black_Cursor.svg",
+  "source_file": "Black Cursor.svg",
+  "source_author": "Ort43v",
+  "source_sha256": "f3c4e48f017bca39661bc096080a95a744338c4a26e7970aaa91376a5eaebf68",
+  "license": "CC-BY-SA-3.0",
+  "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+  "changes": "Extracted the original black cursor path and white outline, removed the shadow and editor metadata, rasterized at 3x, and cropped transparent margins. This adaptation is CC BY-SA 3.0.",
+  "svg_canvas": [
+    190,
+    280
+  ],
+  "svg_view_box": [
+    15,
+    15,
+    190,
+    280
+  ],
+  "raster_canvas": [
+    570,
+    840
+  ],
+  "crop_box": [
+    60,
+    95,
+    490,
+    775
+  ],
+  "sprite_size": [
+    430,
+    680
+  ],
+  "hotspot_description": "Center of the topmost white tip pixels with alpha >= 128 in the cropped raster. Coordinates refer to pixel boundaries.",
+  "hotspot": [
+    30.5,
+    0.5
+  ],
+  "rasterization": "ImageMagick: convert -background none -density 288 mouse_cursor.svg PNG32:mouse_cursor_full.png"
+}

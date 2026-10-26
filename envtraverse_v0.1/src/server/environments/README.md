@@ -17,6 +17,12 @@ processes. It does not push unsolicited observations to the agent.
 | --- | --- |
 | [example](example/README.md) | A counter held in memory; the simplest starting point |
 | [arc3](arc3/README.md) | ARC-AGI-3 through its SDK; text and image observations |
+| [arc3_minimal_all](arc3_minimal_all/README.md) | ARC-AGI-3 with a minimal task description, ASCII frames, and PNG images |
+| [arc3_minimal_ascii](arc3_minimal_ascii/README.md) | ARC-AGI-3 with a minimal task description and ASCII frames |
+| [arc3_minimal_png](arc3_minimal_png/README.md) | ARC-AGI-3 with a minimal task description and PNG images |
+| [arc3_minimal_raw](arc3_minimal_raw/README.md) | ARC-AGI-3 with a minimal task description and raw SDK observations in JSON |
+| [arc3_minimal_img_wnoise3](arc3_minimal_img_wnoise3/README.md) | ARC-AGI-3 images with configurable color noise and geometric deformation |
+| [arc3_minimal_img_wnoise3_whighlight2](arc3_minimal_img_wnoise3_whighlight2/README.md) | Noisy, deformed ARC-AGI-3 images with an auxiliary pixel-highlight action |
 | [agimaze_single](agimaze_single/README.md) | One labyrinth; manages a local engine subprocess |
 | [agimaze_set_v1](agimaze_set_v1/README.md) | An ordered sequence of labyrinths in one session |
 | [terminal_bench](terminal_bench/README.md) | Terminal tasks backed by a separate host runtime |

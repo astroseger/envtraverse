@@ -64,7 +64,7 @@ Change the `agent` field in your configuration:
 | --- | --- | --- |
 | Baseline | `agent_v1` | All bundled environments |
 | Stop-and-report | `agent_v1_01_wstop` | All bundled environments |
-| Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | ARC-AGI-3 |
+| Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | ARC-AGI-3 adapters that emit `metadata.txt` |
 
 For example, set `agent: agent_v1_01_wstop` to run Stop-and-report with the same
 tasks. Compare agents in separate experiments with the same environment settings.
@@ -92,6 +92,49 @@ The supplied configuration forwards `ARC_API_KEY` to the server and uses
 `competition: false`. For competition runs, set
 `environment_parameters.competition: true`. See the
 [ARC-AGI-3 adapter](../../src/server/environments/arc3/README.md) for its settings.
+
+### ARC-AGI-3 observation variants
+
+These adapters use a minimal task description and the same game IDs and
+credentials as the ARC-AGI-3 adapter above. Choose the observation format with
+the `environment` field:
+
+| Environment | Observations |
+| --- | --- |
+| [arc3_minimal_all](../../src/server/environments/arc3_minimal_all/README.md) | ASCII frames, PNG images, and metadata |
+| [arc3_minimal_ascii](../../src/server/environments/arc3_minimal_ascii/README.md) | ASCII frames and metadata |
+| [arc3_minimal_png](../../src/server/environments/arc3_minimal_png/README.md) | PNG images and metadata |
+| [arc3_minimal_raw](../../src/server/environments/arc3_minimal_raw/README.md) | Raw SDK observations and numeric frame arrays in JSON |
+| [arc3_minimal_img_wnoise3](../../src/server/environments/arc3_minimal_img_wnoise3/README.md) | JPEG or PNG images with configurable noise and deformation, plus metadata |
+| [arc3_minimal_img_wnoise3_whighlight2](../../src/server/environments/arc3_minimal_img_wnoise3_whighlight2/README.md) | The same image settings, plus a pixel-highlight action |
+
+For the first four formats, make a copy of
+[run_config_arc3.yaml](../../run_config_arc3.yaml) and change `environment` to
+the selected package name. Keep the game IDs, agent settings, and
+`environment_variables: [ARC_API_KEY]` entry. Use the Baseline or Stop-and-report
+agent with raw JSON; Controlled_RESET requires `metadata.txt`, which the raw
+adapter does not emit.
+
+The image-noise variants require explicit image and noise settings, including
+fields in disabled groups. Start with the supplied configurations:
+
+- [run_config_arc3_minimal_img_wnoise3.yaml](../../run_config_arc3_minimal_img_wnoise3.yaml)
+  selects images with noise and deformation.
+- [run_config_arc3_minimal_img_wnoise3_whighlight2.yaml](../../run_config_arc3_minimal_img_wnoise3_whighlight2.yaml)
+  adds the `highlight_pixel` action and cursor-size setting.
+
+For example:
+
+```bash
+export ARC_API_KEY='your-arc-api-key'
+python3 run_controller.py --run-config run_config_arc3_minimal_img_wnoise3.yaml
+```
+
+Pass the second configuration to the same command to run the highlight variant.
+Both examples select `agent_v1`, game `ls20`, and non-competition mode. Their
+image settings produce 688×688 JPEG images from a 64×64 board. Coordinates
+always refer to the original board. Highlight actions advance the observation
+index without consuming the game-solving budget.
 
 ### AGI Maze: individual labyrinths
 
@@ -181,8 +224,9 @@ python3 run_controller_with_api_key.py --run-config run_config.yaml
 The runner checks Codex with the API key and asks for `continue` before launching.
 It ignores `codex_accounts` and allows **all listed tasks to run concurrently**;
 there is currently no configurable concurrency cap. Choose the task list for the
-host's available resources. Each agent container has a 10 GiB memory limit;
-environment servers and Terminal-Bench task containers use additional resources.
+host's available resources. By default, each agent container has a 10 GiB memory
+limit; environment servers and Terminal-Bench task containers use additional
+resources.
 
 `OPENAI_API_KEY` authenticates the agent. Keep environment credentials in the
 environment's own `environment_variables` configuration. For Terminal-Bench,

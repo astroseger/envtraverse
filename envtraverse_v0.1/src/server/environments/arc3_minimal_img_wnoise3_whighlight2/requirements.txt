@@ -1,0 +1,5 @@
+arc-agi==0.9.9
+numpy
+Pillow
+scipy
+opencv-python-headless

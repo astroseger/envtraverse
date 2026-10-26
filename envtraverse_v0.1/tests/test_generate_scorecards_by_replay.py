@@ -76,6 +76,24 @@ class ReplayActionsTest(unittest.TestCase):
         self.environment.reset.assert_not_called()
         self.arc.close_scorecard.assert_called_once_with()
 
+    def test_highlights_are_skipped_without_changing_game_action_order(self) -> None:
+        actions = [
+            {"id": "highlight_pixel", "data": {"x": 12, "y": 34}},
+            {"id": "ACTION1"},
+            {"id": " highlight_pixel ", "data": {"x": 0, "y": 63}},
+            {"id": "RESET"},
+            {"id": "ACTION6", "data": {"x": 12, "y": 34}},
+        ]
+        original = json.dumps(actions)
+        self.assertEqual(replay.replay_actions("ls20", actions), self.card_data)
+        self.assertEqual(self.environment.method_calls, [
+            call.step(GameAction.ACTION1, data=None),
+            call.reset(),
+            call.step(GameAction.ACTION6, data={"x": 12, "y": 34}),
+        ])
+        self.assertEqual(json.dumps(actions), original)
+        self.arc.close_scorecard.assert_called_once_with()
+
     def test_missing_environment_or_initial_frame_fails_and_closes_scorecard(self) -> None:
         for environment in (None, Mock(observation_space=None)):
             with self.subTest(environment=environment):

@@ -1,0 +1,43 @@
+agent: agent_v1
+environment: arc3_minimal_img_wnoise3_whighlight2
+environment_parameters:
+  image_scale: 8
+  image_format: jpg
+  image_quality: 25
+  mouse_size: 48  # Cursor height in final image pixels; aspect ratio is preserved.
+  image_noise:
+    color_noise:
+      enabled: true
+      palette_noise: 5
+      pixel_noise_std: 20
+      noise_refresh: frame
+    geometry_noise:
+      enabled: true
+      homography:
+        enabled: false
+        rotation_deg: 5
+        shear_deg: 5
+        scale_delta: 0.075
+        translation_delta: 0.02
+        perspective_delta: 0.075
+      ffd:
+        enabled: true
+        # amplitude_fraction bounds each control coefficient on each axis,
+        # relative to the unpadded, enlarged image's shorter side.
+        # Uniform coefficient bounds, not Gaussian standard deviations; 0 disables a grid.
+        grids:
+          - grid_shape: [4, 4]
+            amplitude_fraction: 0.125    # +/-64 px per axis at 512x512 (image_scale: 8)
+          - grid_shape: [8, 8]
+            amplitude_fraction: 0.03125  # +/-16 px per axis at 512x512 (image_scale: 8)
+        minimum_sampled_jacobian: 0.1
+      padding: auto
+      resampling: bilinear
+      geometry_refresh: frame
+environment_variables:
+  - ARC_API_KEY
+
+games: [ls20]
+codex_accounts: [codex01]
+model: gpt-5.6-sol
+reasoning_effort: max

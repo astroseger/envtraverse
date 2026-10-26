@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="190" height="280" viewBox="15 15 190 280">
+  <title>Black Cursor by Ort43v, adapted without shadow</title>
+  <desc>Adapted from https://commons.wikimedia.org/wiki/File:Black_Cursor.svg by Ort43v, licensed CC BY-SA 3.0: https://creativecommons.org/licenses/by-sa/3.0/. Extracted the original cursor path, preserved its black fill and white outline, and removed the shadow and editor metadata. This adaptation is CC BY-SA 3.0.</desc>
+  <path d="M 41,50.79999 41,238.6 l 42.2,-40.8 41,69.2 22.8,0 0.4,-19 -36.2,-68 c 0,0 16.8,0 26.4,0 11.2667,0 36.2,0 36.2,0 L 41,50.79999 z" fill="#000000" stroke="#ffffff" stroke-width="12" stroke-linejoin="miter" stroke-miterlimit="4" />
+</svg>
