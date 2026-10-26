@@ -16,6 +16,8 @@ See the [framework README](envtraverse_v0.1/README.md) for setup and usage.
 
 - **[Improving Environment-Agnostic Coding Agents: The Role of Scaffolding](https://arxiv.org/abs/2610.22289)** —
   [supporting materials](papers/paper03/README.md)
+- **Can Environment-Agnostic Agents Solve ARC-AGI-3 from Warped and Noisy Images?** —
+  [supporting materials](papers/paper04/README.md) (arXiv link coming soon)
 
 ## Citation
 
