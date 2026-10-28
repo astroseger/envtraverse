@@ -23,10 +23,12 @@ class RunConfig:
     agent: str
     parsed_run_config: dict[str, object]
     codex_account_fast_service_tier: bool = False
+    runner: rf.RunnerConfig = rf.RunnerConfig()
 
 
 def parse_run_config(path: Path) -> RunConfig:
     loaded_config = rf.load_run_config(path)
+    runner = rf.parse_runner_config(loaded_config, path)
     environment = rf.parse_environment_config(loaded_config, path)
     accounts = rf.parse_string_list(loaded_config, "codex_accounts", path)
     games = rf.parse_string_list(loaded_config, "games", path)
@@ -48,6 +50,7 @@ def parse_run_config(path: Path) -> RunConfig:
         agent=agent,
         parsed_run_config=loaded_config,
         codex_account_fast_service_tier=fast_service_tier,
+        runner=runner,
     )
 
 
@@ -106,6 +109,7 @@ def docker_agent_command(
     preparation: rf.LaunchPreparation,
     *,
     agent_image: str,
+    runner: rf.RunnerConfig = rf.RunnerConfig(),
 ) -> list[str]:
     account_dir = rf.CODEX_ACCOUNTS_DIR / account
     return [
@@ -115,12 +119,7 @@ def docker_agent_command(
         "--pull=never",
         "--name",
         container_name,
-        "--memory",
-        rf.AGENT_MEMORY_LIMIT,
-        "--memory-swap",
-        rf.AGENT_MEMORY_LIMIT,
-        "--ulimit",
-        f"data={rf.AGENT_PROCESS_DATA_LIMIT_BYTES}:{rf.AGENT_PROCESS_DATA_LIMIT_BYTES}",
+        *rf.agent_memory_args(runner),
         "-v",
         f"{account_dir}:/home/user/.codex",
         "--network",
@@ -144,6 +143,7 @@ def start_agent(
     *,
     agent_image: str,
     fast_service_tier: bool = False,
+    runner: rf.RunnerConfig = rf.RunnerConfig(),
 ) -> rf.RunningContainer:
     clean_codex_account(account, fast_service_tier=fast_service_tier)
     command = docker_agent_command(
@@ -154,6 +154,7 @@ def start_agent(
         proxy_container_name,
         preparation,
         agent_image=agent_image,
+        runner=runner,
     )
     rf.log_info(
         "starting game %s as alias %s on codex account %s; container: %s",
@@ -207,6 +208,7 @@ def run_scheduler(
             preparation,
             agent_image=images.agent,
             fast_service_tier=config.codex_account_fast_service_tier,
+            runner=config.runner,
         )
 
     return rf.run_scheduler(
@@ -255,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             config.environment.variables,
         )
         rf.LOGGER.info("selected agent=%s", config.agent)
+        rf.LOGGER.info("runner memory limits=%s", config.runner)
         rf.LOGGER.info("game alias mapping=%s", game_id_mapping)
         rf.LOGGER.info(
             "docker names internal_network=%s internet_network=%s proxy=%s servers=%s agents=%s",

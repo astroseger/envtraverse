@@ -43,7 +43,11 @@ class EnvironmentLoaderTest(unittest.TestCase):
 
     def test_discovers_the_environments_without_importing_them(self) -> None:
         with patch("environment_loader.import_module") as import_module:
-            self.assertTrue({"agimaze_set_v1", "agimaze_single", "arc3", "example"} <= set(available_environments()))
+            self.assertTrue({
+                "agimaze_set_v1", "agimaze_single", "arc3", "example", "terminal_bench",
+                "arc3_minimal_all", "arc3_minimal_ascii", "arc3_minimal_png", "arc3_minimal_raw",
+                "arc3_minimal_img_wnoise3", "arc3_minimal_img_wnoise3_whighlight2",
+            } <= set(available_environments()))
             import_module.assert_not_called()
 
     def test_unknown_names_cannot_import_other_modules(self) -> None:
@@ -67,7 +71,8 @@ class EnvironmentLoaderTest(unittest.TestCase):
                 cwd=directory, env=env, capture_output=True, text=True, timeout=15,
             )
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
-            self.assertIn("agimaze_set_v1,agimaze_single,arc3,example", help_result.stdout)
+            choices = help_result.stdout.split("--environment {", 1)[1].split("}", 1)[0].split(",")
+            self.assertEqual(choices, available_environments())
             script = (
                 "import sys; "
                 "sys.modules.update({name: None for name in ('arc_agi', 'arcengine', 'numpy', 'PIL')}); "

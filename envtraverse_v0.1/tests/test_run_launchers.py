@@ -245,7 +245,7 @@ class LauncherTest(unittest.TestCase):
                     initial_files_dir=None,
                 )
                 self.assertIs(game.call_args.args[-1], prepare_agent.return_value)
-                expected_kwargs = {"agent_image": IMAGES.agent}
+                expected_kwargs = {"agent_image": IMAGES.agent, "runner": config.runner}
                 if controller is accounts_controller:
                     expected_kwargs["fast_service_tier"] = False
                 self.assertEqual(game.call_args.kwargs, expected_kwargs)
@@ -270,7 +270,7 @@ class LauncherTest(unittest.TestCase):
                         "alias-one", "first", names.agents["first"], names.internal_network,
                         names.servers["first"], names.proxy, prepare.return_value,
                     )
-                    expected_kwargs = {"agent_image": IMAGES.agent}
+                    expected_kwargs = {"agent_image": IMAGES.agent, "runner": config.runner}
                     if controller is accounts_controller:
                         expected_args = ("codex01", *expected_args)
                         expected_kwargs["fast_service_tier"] = False
@@ -376,8 +376,8 @@ class LauncherTest(unittest.TestCase):
                     command = controller.docker_agent_command(*args, agent_image=IMAGES.agent)
                 self.assertIn("--pull=never", command)
                 image_index = command.index(IMAGES.agent)
-                self.assertEqual(command[command.index("--memory") + 1], "10g")
-                self.assertEqual(command[command.index("--memory-swap") + 1], "10g")
+                self.assertEqual(command[command.index("--memory") + 1], "10737418240")
+                self.assertEqual(command[command.index("--memory-swap") + 1], "10737418240")
                 limits = [command[index + 1] for index, part in enumerate(command) if part == "--ulimit"]
                 self.assertEqual(limits, ["data=2147483648:2147483648"])
                 self.assertLess(command.index("--memory"), image_index)
@@ -387,6 +387,33 @@ class LauncherTest(unittest.TestCase):
                 self.assertEqual(command[image_index + 1:], [
                     "python3", "agent_runner.py", "alias", "--model", "gpt-5.6-sol", "--reasoning-effort", "max",
                 ])
+
+    def test_custom_memory_limits_reach_each_scheduled_docker_launch(self) -> None:
+        runner = rf.parse_runner_config({"runner": {
+            "container_memory_gib": 12.5,
+            "process_data_soft_limit_gib": 1.5,
+            "process_data_hard_limit_gib": 3.25,
+        }}, Path("config.yaml"))
+        for controller in CONTROLLERS:
+            with self.subTest(controller=controller.__name__), ExitStack() as stack:
+                config = replace(make_config(controller), runner=runner)
+                names = rf.build_container_names(config.games)
+                scheduler = stack.enter_context(patch.object(rf, "run_scheduler", return_value=0))
+                stack.enter_context(patch.object(rf, "prepare_agent_run", return_value=example_preparation()))
+                stack.enter_context(patch.object(rf, "log_info"))
+                stack.enter_context(patch.object(accounts_controller, "clean_codex_account"))
+                stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}))
+                popen = stack.enter_context(patch.object(controller.subprocess, "Popen"))
+                controller.run_scheduler(config, names, {"alias": "counter"}, images=IMAGES)
+                callback = scheduler.call_args.kwargs["launch_agent"]
+                for alias in ("first-game", "second-game"):
+                    callback("codex01", alias, "counter")
+                self.assertEqual(popen.call_count, 2)
+                for call in popen.call_args_list:
+                    command = call.args[0]
+                    self.assertEqual(command[command.index("--memory") + 1], "13421772800")
+                    self.assertEqual(command[command.index("--memory-swap") + 1], "13421772800")
+                    self.assertEqual(command[command.index("--ulimit") + 1], "data=1610612736:3489660928")
 
     def test_container_names_and_client_hostnames_are_neutral(self) -> None:
         names = rf.build_container_names(["ls20", "ARC-private-game"])

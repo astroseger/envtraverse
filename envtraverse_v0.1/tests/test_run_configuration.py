@@ -69,6 +69,66 @@ class RunConfigurationTest(unittest.TestCase):
                 self.assertEqual(config.environment, rf.EnvironmentConfig("example", {}, []))
                 rf.verify_environment_variables(config.environment)
 
+    def test_runner_defaults_preserve_existing_byte_limits(self) -> None:
+        expected = rf.RunnerConfig(10737418240, 2147483648, 2147483648)
+        for settings in ({}, {"runner": {}}):
+            self.write_config(**settings)
+            for controller in CONTROLLERS:
+                with self.subTest(settings=settings, controller=controller.__name__):
+                    self.assertEqual(controller.parse_run_config(self.config_path).runner, expected)
+
+    def test_supplied_runner_example_uses_defaults(self) -> None:
+        for controller in CONTROLLERS:
+            config = controller.parse_run_config(ROOT / "run_config.yaml")
+            self.assertNotIn("runner", config.parsed_run_config)
+            self.assertNotIn("recovery_delay_seconds", config.parsed_run_config)
+            self.assertNotIn("max_recovery_attempts", config.parsed_run_config)
+            self.assertEqual(config.runner, rf.RunnerConfig())
+
+    def test_runner_accepts_fractions_and_defaults_each_missing_setting(self) -> None:
+        cases = (
+            ({"container_memory_gib": 12.5, "process_data_soft_limit_gib": 1.5,
+              "process_data_hard_limit_gib": 2.75},
+             rf.RunnerConfig(13421772800, 1610612736, 2952790016)),
+            ({"container_memory_gib": 8}, rf.RunnerConfig(8589934592, 2147483648, 2147483648)),
+            ({"process_data_soft_limit_gib": 0.1}, rf.RunnerConfig(10737418240, 107374182, 2147483648)),
+            ({"process_data_hard_limit_gib": 3}, rf.RunnerConfig(10737418240, 2147483648, 3221225472)),
+        )
+        for runner, expected in cases:
+            self.write_config(runner=runner)
+            for controller in CONTROLLERS:
+                with self.subTest(runner=runner, controller=controller.__name__):
+                    config = controller.parse_run_config(self.config_path)
+                    self.assertEqual(config.runner, expected)
+                    self.assertEqual(config.parsed_run_config["runner"], runner)
+
+    def test_runner_rejects_invalid_sections_and_unknown_settings(self) -> None:
+        for runner in (None, False, [], "defaults", 2, {"swap_gib": 1}, {"container_memory_gb": 10}):
+            self.write_config(runner=runner)
+            for controller in CONTROLLERS:
+                with self.subTest(runner=runner, controller=controller.__name__):
+                    with self.assertRaisesRegex(RuntimeError, "runner"):
+                        controller.parse_run_config(self.config_path)
+
+    def test_runner_rejects_invalid_memory_values(self) -> None:
+        for key in ("container_memory_gib", "process_data_soft_limit_gib", "process_data_hard_limit_gib"):
+            for value in (None, True, False, "2", [], {}, 0, -1, float("nan"), float("inf"),
+                          float("-inf"), 1e-20, 1e100):
+                self.write_config(runner={key: value})
+                for controller in CONTROLLERS:
+                    with self.subTest(key=key, value=value, controller=controller.__name__):
+                        with self.assertRaisesRegex(RuntimeError, f"runner.{key}"):
+                            controller.parse_run_config(self.config_path)
+
+    def test_runner_rejects_soft_limit_above_hard_limit_including_defaults(self) -> None:
+        for runner in ({"process_data_soft_limit_gib": 3}, {"process_data_hard_limit_gib": 1},
+                       {"process_data_soft_limit_gib": 2.5, "process_data_hard_limit_gib": 2.25}):
+            self.write_config(runner=runner)
+            for controller in CONTROLLERS:
+                with self.subTest(runner=runner, controller=controller.__name__):
+                    with self.assertRaisesRegex(RuntimeError, "soft_limit_gib.*less than or equal to.*hard_limit_gib"):
+                        controller.parse_run_config(self.config_path)
+
     def test_account_fast_service_tier_defaults_to_false_and_accepts_booleans(self) -> None:
         self.write_config()
         self.assertIs(accounts_controller.parse_run_config(self.config_path).codex_account_fast_service_tier, False)

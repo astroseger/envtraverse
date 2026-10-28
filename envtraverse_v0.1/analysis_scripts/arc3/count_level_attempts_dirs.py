@@ -101,6 +101,8 @@ def analyze_observations(observations_dir: Path) -> tuple[Counter[str], Counter[
         action = metadata.get("action_input")
         if not isinstance(action, dict) or not isinstance(action.get("id"), str):
             raise ValueError(f"{path}: action_input must be an object with a string id")
+        if action["id"].strip() == "highlight_pixel":
+            continue
 
         # Attribute the action (including a level-completing move or RESET) to
         # the level in the preceding observation, not the resulting one.

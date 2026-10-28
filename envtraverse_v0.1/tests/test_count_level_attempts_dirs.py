@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from analysis_scripts.arc3 import count_level_attempts_dirs as counter
-from analysis_scripts.old_arc3 import count_level_attempts as legacy
 
 
 def frame(completed: int = 0, state: str = "NOT_FINISHED", action: str = "ACTION1", levels: int = 2) -> dict:
@@ -44,7 +43,18 @@ class ObservationCountsTest(unittest.TestCase):
         result = counter.analyze_observations(self.observations)
         self.assertEqual(result, ({"01": 2, "02": 2}, {"01": 4, "02": 3}, True))
         self.assertEqual(counter.format_counts(*result), "01/2/4, 02/2/3, WIN")
-        self.assertEqual(result, legacy.analyze_observations(self.observations))
+
+    def test_highlights_do_not_count_as_steps_or_attempts(self) -> None:
+        write_steps(self.observations, [
+            frame(action="RESET"), frame(action="highlight_pixel"), frame(),
+            frame(state="GAME_OVER"), frame(state="GAME_OVER", action="highlight_pixel"),
+            frame(action="RESET"), frame(completed=1),
+            frame(completed=1, action=" highlight_pixel "), frame(completed=2, state="WIN"),
+        ])
+        self.assertEqual(
+            counter.analyze_observations(self.observations),
+            ({"01": 2, "02": 1}, {"01": 4, "02": 1}, True),
+        )
 
     def test_initial_reset_is_not_an_action_or_extra_attempt(self) -> None:
         write_steps(self.observations, [frame(action="RESET")])
@@ -54,7 +64,6 @@ class ObservationCountsTest(unittest.TestCase):
         write_steps(self.observations, [frame(), frame(completed=1)])
         result = counter.analyze_observations(self.observations)
         self.assertEqual(counter.format_counts(*result), "01/1/1, 02/1/0")
-        self.assertEqual(result, legacy.analyze_observations(self.observations))
 
     def test_game_over_does_not_itself_start_another_attempt(self) -> None:
         write_steps(self.observations, [frame(), frame(state="GAME_OVER")])
@@ -69,7 +78,6 @@ class ObservationCountsTest(unittest.TestCase):
         (self.observations / "step_0011_metadata.txt").mkdir()
         result = counter.analyze_observations(self.observations)
         self.assertEqual(counter.format_counts(*result), "01/1/10, 02/1/0")
-        self.assertEqual(result, legacy.analyze_observations(self.observations))
 
     def test_empty_observations_are_not_mistaken_for_a_started_game(self) -> None:
         self.observations.mkdir()

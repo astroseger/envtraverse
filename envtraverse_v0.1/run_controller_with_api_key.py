@@ -30,10 +30,12 @@ class RunConfig:
     environment: rf.EnvironmentConfig
     agent: str
     parsed_run_config: dict[str, object]
+    runner: rf.RunnerConfig = rf.RunnerConfig()
 
 
 def parse_run_config(path: Path) -> RunConfig:
     loaded_config = rf.load_run_config(path)
+    runner = rf.parse_runner_config(loaded_config, path)
     environment = rf.parse_environment_config(loaded_config, path)
     games = rf.parse_string_list(loaded_config, "games", path)
     agent = rf.parse_agent_name(loaded_config, path)
@@ -43,6 +45,7 @@ def parse_run_config(path: Path) -> RunConfig:
         environment=environment,
         agent=agent,
         parsed_run_config=loaded_config,
+        runner=runner,
     )
 
 
@@ -68,6 +71,7 @@ def docker_agent_command(
     preparation: rf.LaunchPreparation,
     *,
     agent_image: str,
+    runner: rf.RunnerConfig = rf.RunnerConfig(),
 ) -> list[str]:
     return [
         "docker",
@@ -76,12 +80,7 @@ def docker_agent_command(
         "--pull=never",
         "--name",
         container_name,
-        "--memory",
-        rf.AGENT_MEMORY_LIMIT,
-        "--memory-swap",
-        rf.AGENT_MEMORY_LIMIT,
-        "--ulimit",
-        f"data={rf.AGENT_PROCESS_DATA_LIMIT_BYTES}:{rf.AGENT_PROCESS_DATA_LIMIT_BYTES}",
+        *rf.agent_memory_args(runner),
         "-e",
         f"CODEX_API_KEY={os.environ['OPENAI_API_KEY']}",
         "--network",
@@ -103,6 +102,7 @@ def start_agent(
     preparation: rf.LaunchPreparation,
     *,
     agent_image: str,
+    runner: rf.RunnerConfig = rf.RunnerConfig(),
 ) -> rf.RunningContainer:
     command = docker_agent_command(
         container_name,
@@ -111,6 +111,7 @@ def start_agent(
         proxy_container_name,
         preparation,
         agent_image=agent_image,
+        runner=runner,
     )
     rf.log_info(
         "starting game %s as alias %s with API key; container: %s",
@@ -160,6 +161,7 @@ def run_scheduler(
             container_names.proxy,
             preparation,
             agent_image=images.agent,
+            runner=config.runner,
         )
 
     return rf.run_scheduler(
@@ -216,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
             config.environment.variables,
         )
         rf.LOGGER.info("selected agent=%s", config.agent)
+        rf.LOGGER.info("runner memory limits=%s", config.runner)
         rf.LOGGER.info("game alias mapping=%s", game_id_mapping)
         rf.LOGGER.info(
             "docker names internal_network=%s internet_network=%s proxy=%s servers=%s agents=%s",

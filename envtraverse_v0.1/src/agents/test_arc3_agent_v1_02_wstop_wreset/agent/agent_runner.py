@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import signal
 import subprocess
@@ -145,7 +146,24 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("GAME_NAME")
     parser.add_argument("--model", default="gpt-5.5")
     parser.add_argument("--reasoning-effort", default="medium")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--recovery-delay-seconds",
+        type=float,
+        default=0.0,
+        help="Seconds to wait before every recovery attempt (default: 0).",
+    )
+    parser.add_argument(
+        "--max-recovery-attempts",
+        type=int,
+        default=MAX_RECOVERY_ATTEMPTS,
+        help="Maximum number of recovery attempts; 0 disables recovery (default: 10).",
+    )
+    args = parser.parse_args(argv)
+    if not math.isfinite(args.recovery_delay_seconds) or args.recovery_delay_seconds < 0:
+        parser.error("--recovery-delay-seconds must be a finite, non-negative number of seconds")
+    if args.max_recovery_attempts < 0:
+        parser.error("--max-recovery-attempts must be a non-negative integer")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -175,17 +193,27 @@ def main(argv: list[str] | None = None) -> int:
                 log("agent_runner.py: stop condition met; stopping supervisor")
                 return 0
 
-            if recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+            if recovery_attempts >= args.max_recovery_attempts:
                 log(
                     "agent_runner.py: recovery attempt limit reached "
-                    f"({MAX_RECOVERY_ATTEMPTS}); stopping supervisor"
+                    f"({args.max_recovery_attempts}); stopping supervisor"
                 )
                 return 0
+
+            if args.recovery_delay_seconds > 0:
+                log(
+                    "agent_runner.py: waiting "
+                    f"{args.recovery_delay_seconds:g} seconds before recovery"
+                )
+                time.sleep(args.recovery_delay_seconds)
+                if inspect_and_should_stop():
+                    log("agent_runner.py: stop condition met; stopping supervisor")
+                    return 0
 
             recovery_attempts += 1
             log(
                 "agent_runner.py: recovery attempt "
-                f"{recovery_attempts}/{MAX_RECOVERY_ATTEMPTS}"
+                f"{recovery_attempts}/{args.max_recovery_attempts}"
             )
             recovery_process = start_agent(
                 build_agent_command(

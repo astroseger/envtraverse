@@ -84,6 +84,8 @@ def replay_actions(environment_id: str, actions: Any) -> dict[str, Any]:
                 action_id = action.get("id")
                 if not isinstance(action_id, str) or not action_id.strip():
                     raise ValueError("action requires a string id")
+                if action_id.strip() == "highlight_pixel":
+                    continue
                 try:
                     game_action = GameAction[action_id.strip()]
                 except KeyError:

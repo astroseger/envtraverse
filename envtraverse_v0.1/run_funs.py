@@ -13,6 +13,7 @@ import sys
 from collections import deque
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
 from uuid import uuid4
@@ -34,12 +35,15 @@ BUILD_DOCKERS_SCRIPT = ROOT / "src" / "build_dockers.sh"
 SERVER_PORT = 8879
 SERVER_START_TIMEOUT_SECONDS = 1800.0
 PROXY_PORT = 3128
-# Limit each process's data allocations without restricting the code-mode host's
-# large virtual address reservations. The container cap is an aggregate backstop.
-AGENT_PROCESS_DATA_LIMIT_BYTES = 2 * 1024**3
-AGENT_MEMORY_LIMIT = "10g"
 LOGGER = logging.getLogger("arc-runner")
 SERVER_MANAGED_VARIABLES = frozenset({"ENV_SERVER_HOST", "ENV_SERVER_PORT"})
+
+
+@dataclass(frozen=True)
+class RunnerConfig:
+    container_memory_bytes: int = 10 * 1024**3
+    process_data_soft_limit_bytes: int = 2 * 1024**3
+    process_data_hard_limit_bytes: int = 2 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,51 @@ def load_run_config(path: Path) -> dict[str, object]:
         raise RuntimeError(f"{path} must contain a YAML mapping")
 
     return loaded_config
+
+
+def parse_runner_config(config: dict[str, object], path: Path) -> RunnerConfig:
+    settings = config.get("runner", {})
+    if not isinstance(settings, dict):
+        raise RuntimeError(f"runner in {path} must be a mapping")
+
+    fields = {
+        "container_memory_gib": "container_memory_bytes",
+        "process_data_soft_limit_gib": "process_data_soft_limit_bytes",
+        "process_data_hard_limit_gib": "process_data_hard_limit_bytes",
+    }
+    unknown = [str(key) for key in settings if key not in fields]
+    if unknown:
+        raise RuntimeError(f"unknown runner settings in {path}: {', '.join(sorted(unknown))}")
+
+    limits = asdict(RunnerConfig())
+    for key, value in settings.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise RuntimeError(f"runner.{key} in {path} must be a positive finite number in GiB")
+        gib = Decimal(str(value))
+        if not gib.is_finite() or gib <= 0:
+            raise RuntimeError(f"runner.{key} in {path} must be a positive finite number in GiB")
+        byte_count = gib * 1024**3
+        if byte_count < 1 or byte_count > 2**63 - 1:
+            raise RuntimeError(f"runner.{key} in {path} must convert to between 1 and {2**63 - 1} bytes")
+        # Docker and ulimit accept whole bytes; discard any fractional byte.
+        limits[fields[key]] = int(byte_count)
+
+    if limits["process_data_soft_limit_bytes"] > limits["process_data_hard_limit_bytes"]:
+        raise RuntimeError(
+            f"runner.process_data_soft_limit_gib in {path} must be less than or equal to "
+            "runner.process_data_hard_limit_gib"
+        )
+    return RunnerConfig(**limits)
+
+
+def agent_memory_args(runner: RunnerConfig) -> list[str]:
+    # Data limits leave the code-mode host's large virtual address reservations
+    # unrestricted. Equal memory and memory-swap caps disable additional swap.
+    return [
+        "--memory", str(runner.container_memory_bytes),
+        "--memory-swap", str(runner.container_memory_bytes),
+        "--ulimit", f"data={runner.process_data_soft_limit_bytes}:{runner.process_data_hard_limit_bytes}",
+    ]
 
 
 def parse_string_list(config: dict[str, object], key: str, path: Path) -> list[str]:

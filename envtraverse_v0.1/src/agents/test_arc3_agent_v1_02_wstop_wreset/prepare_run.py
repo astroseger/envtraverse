@@ -1,5 +1,6 @@
 """Prepare agent_v1's files and Docker launch arguments on the host."""
 
+import math
 from pathlib import Path
 import shutil
 
@@ -24,6 +25,34 @@ def prepare_run(
         if not isinstance(value, str) or not value:
             raise RuntimeError(f"{name} is required in run config and must be a non-empty string")
 
+    recovery_delay_seconds = parsed_run_config.get("recovery_delay_seconds", 0)
+    delay_error = "recovery_delay_seconds in run config must be a finite, non-negative number of seconds"
+    if isinstance(recovery_delay_seconds, bool) or not isinstance(recovery_delay_seconds, (int, float)):
+        raise RuntimeError(delay_error)
+    try:
+        recovery_delay_seconds = float(recovery_delay_seconds)
+    except OverflowError as exc:
+        raise RuntimeError(delay_error) from exc
+    if not math.isfinite(recovery_delay_seconds) or recovery_delay_seconds < 0:
+        raise RuntimeError(delay_error)
+
+    max_recovery_attempts = parsed_run_config.get("max_recovery_attempts", 10)
+    if (
+        isinstance(max_recovery_attempts, bool)
+        or not isinstance(max_recovery_attempts, int)
+        or max_recovery_attempts < 0
+    ):
+        raise RuntimeError("max_recovery_attempts in run config must be a non-negative integer")
+
+    command = [
+        "python3", "agent_runner.py", game_alias,
+        "--model", model, "--reasoning-effort", reasoning_effort,
+    ]
+    if recovery_delay_seconds > 0:
+        command.extend(["--recovery-delay-seconds", str(recovery_delay_seconds)])
+    if max_recovery_attempts != 10:
+        command.extend(["--max-recovery-attempts", str(max_recovery_attempts)])
+
     agent_run_dir = run_dir / "run"
     client_dir = run_dir / "client"
     observations_dir = run_dir / "observations"
@@ -47,10 +76,7 @@ def prepare_run(
         observations_path="/observations",
     )
     return LaunchPreparation(
-        command=[
-            "python3", "agent_runner.py", game_alias,
-            "--model", model, "--reasoning-effort", reasoning_effort,
-        ],
+        command=command,
         mounts=[
             # These mounts must be rw: the client temporarily toggles POSIX modes.
             AgentMount(client_dir, "/client"),

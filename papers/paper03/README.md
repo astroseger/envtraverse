@@ -4,7 +4,7 @@
 
 ## Code and agents
 
-- [EnvTraverse v0.1](../../envtraverse_v0.1/) — the exact framework version used in
+- [EnvTraverse v0.1](https://zenodo.org/records/23475940) — the exact framework version used in
   the paper. Run [Baseline](../../envtraverse_v0.1/src/agents/agent_v1/),
   [Stop-and-report](../../envtraverse_v0.1/src/agents/agent_v1_01_wstop/), and
   [Controlled_RESET](../../envtraverse_v0.1/src/agents/test_arc3_agent_v1_02_wstop_wreset/)
