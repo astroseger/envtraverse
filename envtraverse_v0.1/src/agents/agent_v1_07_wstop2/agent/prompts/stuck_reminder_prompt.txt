@@ -1,1 +1,5 @@
-You have not sent any environment actions since the previous continuation request. Continue working and send meaningful actions toward completing your task. If you do not make progress, the run will stop.
+You haven't submitted any actions to the environment since my previous request. Please continue working and focus on taking meaningful steps toward completing your task.
+
+You already have all the information you need to solve the problem you're facing. Take some time to think carefully about your options, decide on the best approach, and move forward. I'm confident you can make progress!
+
+Remember that submitting meaningful actions to the environment is essential. If you fail to submit any meaningful actions to the environment, you will fail the entire task. So keep trying, explore different approaches if necessary, and do your best to make progress.

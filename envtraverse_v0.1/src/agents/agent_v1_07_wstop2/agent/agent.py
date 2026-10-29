@@ -231,7 +231,7 @@ class SimpleAgent:
 
     def stuck_protocol(self) -> None:
         self.logger.info("selected protocol", extra={"protocol": "stuck_protocol"})
-        self.send_prompt(self.continuation_prompt() + "\n" + self.stuck_reminder_prompt)
+        self.send_prompt(self.stuck_reminder_prompt)
 
     def iteration_loop(self, inspection: SessionInspection) -> None:
         self.run_git(inspection)
