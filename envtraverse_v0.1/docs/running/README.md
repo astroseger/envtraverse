@@ -71,6 +71,29 @@ tasks. Compare agents in separate experiments with the same environment settings
 See [Agents](../../src/agents/README.md) for the implementations and integration
 instructions.
 
+### Agent Docker build arguments
+
+Both runners accept an optional `agent_docker_build_args` mapping. Each entry is
+passed as `--build-arg NAME=VALUE` when building the selected agent's Docker image.
+For example, `agent_v1_07_wstop2` supports selecting the Codex CLI version:
+
+```yaml
+agent: agent_v1_07_wstop2
+agent_docker_build_args:
+  CODEX_VERSION: "0.154.0"
+```
+
+The mapping defaults to `{}`, which preserves the selected Dockerfile's defaults.
+For `agent_v1_07_wstop2`, the default Codex version is `0.154.0`. The other bundled
+agents retain their fixed versions and do not currently accept `CODEX_VERSION`.
+Use an exact version for reproducible runs.
+
+Names must match `ARG` declarations in the selected Dockerfile and values must be
+strings; quote numeric values in YAML. `USER_ID` and `GROUP_ID` are managed by the
+runner and cannot be overridden. Invalid settings fail before images are built.
+Arguments apply only to the agent image; server, proxy, and account-tools builds
+use their existing settings. Supplied arguments are recorded in `run/runner.log`.
+
 ## Choose an environment
 
 `environment` selects an adapter. The `games` list contains its task IDs, including

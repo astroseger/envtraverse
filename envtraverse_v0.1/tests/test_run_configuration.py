@@ -77,6 +77,65 @@ class RunConfigurationTest(unittest.TestCase):
                 with self.subTest(settings=settings, controller=controller.__name__):
                     self.assertEqual(controller.parse_run_config(self.config_path).runner, expected)
 
+    def test_agent_docker_build_args_default_to_empty_for_all_agents(self) -> None:
+        for agent in ("agent_v1", "agent_v1_01_wstop", "agent_v1_07_wstop2", "test_arc3_agent_v1_02_wstop_wreset"):
+            for settings in ({}, {"agent_docker_build_args": {}}):
+                self.write_config(agent=agent, **settings)
+                for controller in CONTROLLERS:
+                    with self.subTest(agent=agent, settings=settings, controller=controller.__name__):
+                        self.assertEqual(controller.parse_run_config(self.config_path).agent_docker_build_args, {})
+
+    def test_both_controllers_accept_codex_version_for_opted_in_agent(self) -> None:
+        arguments = {"CODEX_VERSION": "0.153.4"}
+        self.write_config(agent="agent_v1_07_wstop2", agent_docker_build_args=arguments)
+        for controller in CONTROLLERS:
+            with self.subTest(controller=controller.__name__):
+                config = controller.parse_run_config(self.config_path)
+                self.assertEqual(config.agent_docker_build_args, arguments)
+                self.assertEqual(config.parsed_run_config["agent_docker_build_args"], arguments)
+
+    def test_agent_docker_build_args_are_generic_and_preserve_string_values(self) -> None:
+        agent = self.directory / "agents/custom_agent"
+        agent.mkdir(parents=True)
+        (agent / "prepare_run.py").touch()
+        (agent / "Dockerfile").write_text(
+            "FROM scratch\nARG TOOL_VERSION=1\n  arg BUILD_LABEL\nARG EMPTY=default\n",
+            encoding="utf-8",
+        )
+        arguments = {"TOOL_VERSION": "2.0-beta.1", "BUILD_LABEL": "spaces = $HOME\nsecond line", "EMPTY": ""}
+        self.write_config(agent="custom_agent", agent_docker_build_args=arguments)
+        with patch.object(rf, "AGENTS_DIR", agent.parent):
+            for controller in CONTROLLERS:
+                self.assertEqual(controller.parse_run_config(self.config_path).agent_docker_build_args, arguments)
+
+    def test_agent_docker_build_args_reject_invalid_mappings_names_and_values(self) -> None:
+        invalid = [None, False, [], "CODEX_VERSION=0.153.4", 2]
+        invalid.extend({name: "value"} for name in (None, 1, "", "BAD-NAME", "CODEX_VERSION=bad", "CODEX_VERSION\n"))
+        invalid.extend({"CODEX_VERSION": value} for value in (None, True, 1, 1.5, [], {}, "bad\0value"))
+        for arguments in invalid:
+            self.write_config(agent="agent_v1_07_wstop2", agent_docker_build_args=arguments)
+            for controller in CONTROLLERS:
+                with self.subTest(arguments=arguments, controller=controller.__name__):
+                    with self.assertRaisesRegex(RuntimeError, "agent_docker_build_args"):
+                        controller.parse_run_config(self.config_path)
+
+    def test_agent_docker_build_args_reject_reserved_and_undeclared_names(self) -> None:
+        for name in ("USER_ID", "GROUP_ID", "CODEX_VERISON", "codex_version"):
+            self.write_config(agent="agent_v1_07_wstop2", agent_docker_build_args={name: "123"})
+            for controller in CONTROLLERS:
+                with self.subTest(name=name, controller=controller.__name__):
+                    expected = "managed by the controller" if name in {"USER_ID", "GROUP_ID"} else "does not declare ARG"
+                    with self.assertRaisesRegex(RuntimeError, expected):
+                        controller.parse_run_config(self.config_path)
+
+    def test_other_agents_do_not_silently_accept_codex_version_override(self) -> None:
+        for agent in ("agent_v1", "agent_v1_01_wstop", "test_arc3_agent_v1_02_wstop_wreset"):
+            self.write_config(agent=agent, agent_docker_build_args={"CODEX_VERSION": "0.153.4"})
+            for controller in CONTROLLERS:
+                with self.subTest(agent=agent, controller=controller.__name__):
+                    with self.assertRaisesRegex(RuntimeError, "does not declare ARG CODEX_VERSION"):
+                        controller.parse_run_config(self.config_path)
+
     def test_supplied_runner_example_uses_defaults(self) -> None:
         for controller in CONTROLLERS:
             config = controller.parse_run_config(ROOT / "run_config.yaml")

@@ -5,7 +5,7 @@ import argparse
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import run_funs as rf
@@ -31,6 +31,7 @@ class RunConfig:
     agent: str
     parsed_run_config: dict[str, object]
     runner: rf.RunnerConfig = rf.RunnerConfig()
+    agent_docker_build_args: dict[str, str] = field(default_factory=dict)
 
 
 def parse_run_config(path: Path) -> RunConfig:
@@ -39,6 +40,7 @@ def parse_run_config(path: Path) -> RunConfig:
     environment = rf.parse_environment_config(loaded_config, path)
     games = rf.parse_string_list(loaded_config, "games", path)
     agent = rf.parse_agent_name(loaded_config, path)
+    agent_docker_build_args = rf.parse_agent_docker_build_args(loaded_config, path)
     rf.validate_unique_games(games)
     return RunConfig(
         games=games,
@@ -46,6 +48,7 @@ def parse_run_config(path: Path) -> RunConfig:
         agent=agent,
         parsed_run_config=loaded_config,
         runner=runner,
+        agent_docker_build_args=agent_docker_build_args,
     )
 
 
@@ -228,7 +231,10 @@ def main(argv: list[str] | None = None) -> int:
             container_names.servers,
             container_names.agents,
         )
-        with rf.built_run_images(config.environment.name, config.agent) as images:
+        with rf.built_run_images(
+            config.environment.name, config.agent,
+            agent_docker_build_args=config.agent_docker_build_args,
+        ) as images:
             verify_codex_api_key()
             exit_code = run_scheduler(config, container_names, game_id_mapping, images=images)
         rf.LOGGER.info("runner finished exit_code=%s", exit_code)

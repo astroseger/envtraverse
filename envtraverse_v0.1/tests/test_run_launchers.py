@@ -203,7 +203,7 @@ class LauncherTest(unittest.TestCase):
                 else:
                     stack.enter_context(patch.object(controller, "verify_codex_accounts"))
                 self.assertEqual(controller.main([]), 0)
-                build.assert_called_once_with("example", "agent_v1")
+                build.assert_called_once_with("example", "agent_v1", agent_docker_build_args={})
                 self.assertEqual(scheduler.call_args.kwargs, {"images": IMAGES})
                 self.assertIs(scheduler.call_args.args[0], config)
                 if controller is api_controller:
@@ -589,7 +589,21 @@ class DockerBuildTest(unittest.TestCase):
         )
         self.assertEqual(inspect.call_count, 3)
 
-    def run_build_script(self, *args, existing_image=""):
+    def test_build_wrapper_passes_agent_docker_build_args_as_literal_arguments(self) -> None:
+        value = "0.153.4 $HOME $(printf unexpected) `printf unexpected` spaces=preserved"
+        with (
+            patch.object(rf.subprocess, "Popen", return_value=Mock(wait=Mock(return_value=0))) as popen,
+            patch.object(rf.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="sha256:" + "1" * 64)),
+            patch.object(rf, "log_info"),
+        ):
+            rf.build_dockers("example", "agent_v1_07_wstop2", IMAGES,
+                             agent_docker_build_args={"CODEX_VERSION": value})
+        self.assertEqual(popen.call_args.args[0], [
+            "bash", str(rf.BUILD_DOCKERS_SCRIPT), "example", "agent_v1_07_wstop2",
+            IMAGES.agent, IMAGES.server, IMAGES.proxy, "--agent-build-arg", f"CODEX_VERSION={value}",
+        ])
+
+    def run_build_script(self, *args, existing_image="", script_path=None):
         # Stub Docker inside Bash: exercise the actual script without building images.
         script = r'''
 docker() {
@@ -606,10 +620,65 @@ export -f docker
 bash "$@"
 '''
         return subprocess.run(
-            ["bash", "-c", script, "build-test", str(rf.BUILD_DOCKERS_SCRIPT), *args],
+            ["bash", "-c", script, "build-test", str(script_path or rf.BUILD_DOCKERS_SCRIPT), *args],
             cwd=ROOT, capture_output=True, text=True, timeout=10,
             env=dict(os.environ, EXISTING_IMAGE=existing_image),
         )
+
+    def test_build_script_passes_overrides_only_to_agent_with_either_tag_mode(self) -> None:
+        value = "0.153.4 $HOME $(printf unexpected) `printf unexpected` spaces=preserved\nnext line"
+        for tags in ([], [IMAGES.agent, IMAGES.server, IMAGES.proxy]):
+            with self.subTest(tags=tags):
+                result = self.run_build_script("example", "agent_v1_07_wstop2", *tags,
+                                               "--agent-build-arg", f"CODEX_VERSION={value}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                commands = [command.split("\0") for command in result.stdout.split("\0\0") if command]
+                self.assertEqual(len(commands), 3)
+                self.assertIn(f"CODEX_VERSION={value}", commands[0])
+                self.assertNotIn(f"CODEX_VERSION={value}", commands[1] + commands[2])
+                self.assertIn(f"USER_ID={os.getuid()}", commands[0])
+                self.assertIn(f"GROUP_ID={os.getgid()}", commands[0])
+
+    def test_build_script_accepts_multiple_generic_arguments_including_empty_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "src"
+            agent = source / "agents/custom_agent"
+            agent.mkdir(parents=True)
+            (agent / "prepare_run.py").touch()
+            (agent / "Dockerfile").write_text("FROM scratch\nARG TOOL_VERSION\n  arg BUILD_LABEL\nARG EMPTY\n")
+            environment = source / "server/environments/example"
+            environment.mkdir(parents=True)
+            (environment / "environment_manager.py").touch()
+            script_path = source / "build_dockers.sh"
+            script_path.write_text(rf.BUILD_DOCKERS_SCRIPT.read_text())
+            result = self.run_build_script(
+                "example", "custom_agent", "--agent-build-arg", "TOOL_VERSION=2",
+                "--agent-build-arg", "BUILD_LABEL=hello world", "--agent-build-arg", "EMPTY=",
+                script_path=script_path,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = [command.split("\0") for command in result.stdout.split("\0\0") if command]
+        self.assertEqual(len(commands), 3)
+        for argument in ("TOOL_VERSION=2", "BUILD_LABEL=hello world", "EMPTY="):
+            self.assertIn(argument, commands[0])
+            self.assertNotIn(argument, commands[1] + commands[2])
+
+    def test_build_script_rejects_invalid_reserved_duplicate_and_undeclared_arguments(self) -> None:
+        cases = [
+            ("--agent-build-arg",), ("--agent-build-arg", "CODEX_VERSION"),
+            ("--wrong-flag", "CODEX_VERSION=0.153.4"),
+            ("--agent-build-arg", "CODEX_VERSION=0.153.4", "--agent-build-arg", "CODEX_VERSION=0.154.0"),
+        ]
+        cases.extend(("--agent-build-arg", f"{name}=value") for name in
+                     ("", "BAD-NAME", "CODEX_VERSION\n", "USER_ID", "GROUP_ID", "CODEX_VERISON", "codex_version"))
+        for args in cases:
+            with self.subTest(args=args):
+                result = self.run_build_script("example", "agent_v1_07_wstop2", *args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+        result = self.run_build_script("example", "agent_v1", "--agent-build-arg", "CODEX_VERSION=0.153.4")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("does not declare ARG CODEX_VERSION", result.stderr)
 
     def test_build_script_selects_environment_dependencies_only_for_server(self) -> None:
         for environment in ("arc3", "agimaze_single", "example"):

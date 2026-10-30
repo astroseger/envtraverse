@@ -1,4 +1,6 @@
 agent: agent_v1_07_wstop2
+agent_docker_build_args:
+  CODEX_VERSION: "0.166.0"
 http_read_timeout_seconds: 36300             # 10 hours 5 minutes
 supervisor_inactivity_timeout_seconds: 39600  # 11 hours
 environment: terminal_bench

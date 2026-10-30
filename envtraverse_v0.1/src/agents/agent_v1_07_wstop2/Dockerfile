@@ -13,8 +13,6 @@ RUN apt-get update && apt-get install -y \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm i -g @openai/codex@0.154.0
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-numpy \
     python3-scipy \
@@ -67,6 +65,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-h5py \
     python3-tables \
     && rm -rf /var/lib/apt/lists/*
+
+ARG CODEX_VERSION=0.154.0
+RUN npm i -g "@openai/codex@${CODEX_VERSION}"
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000

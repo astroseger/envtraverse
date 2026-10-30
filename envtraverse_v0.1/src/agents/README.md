@@ -53,7 +53,11 @@ Create `src/agents/<name>/` with two entry points:
 
 - **`Dockerfile`** defines the agent's software and working directory. The build
   context is `src/`; the runner supplies the host user's `USER_ID` and `GROUP_ID`
-  as build arguments.
+  as build arguments. Declare additional `ARG` settings, with defaults where
+  appropriate, to expose them through the run configuration's
+  `agent_docker_build_args` mapping. The runner validates and passes these settings
+  during the image build, before calling `prepare_run.py`. Names are case-sensitive,
+  values must be strings, and `USER_ID` and `GROUP_ID` are reserved.
 - **`prepare_run.py`** prepares the files for one task and returns the command,
   mounts, and environment variables needed to launch the agent container.
 

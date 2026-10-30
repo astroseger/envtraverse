@@ -40,15 +40,16 @@ class RunImagesTest(unittest.TestCase):
         self.assertRegex(suffixes[0], r"^run-[0-9a-f]{32}$")
 
     def test_manifest_is_saved_before_build_and_cleanup_waits_for_body(self) -> None:
-        def build(environment, agent, images):
+        def build(environment, agent, images, *, agent_docker_build_args):
             self.assertEqual(agent, "agent_v1")
             self.assertEqual(environment, "example")
+            self.assertIsNone(agent_docker_build_args)
             self.assertEqual(json.loads((self.directory / "docker_images.json").read_text()), asdict(images))
 
         self.build.side_effect = build
         with rf.built_run_images("example", "agent_v1") as images:
             self.remove.assert_not_called()
-            self.build.assert_called_once_with("example", "agent_v1", images)
+            self.build.assert_called_once_with("example", "agent_v1", images, agent_docker_build_args=None)
         self.remove.assert_called_once_with(images)
 
     def test_partial_build_failure_still_removes_the_run_images(self) -> None:
@@ -86,7 +87,7 @@ class RunImagesTest(unittest.TestCase):
     def test_startup_signal_cleans_up_and_restores_handlers(self) -> None:
         previous = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
 
-        def build(*_args):
+        def build(*_args, **_kwargs):
             signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
 
         self.build.side_effect = build
@@ -115,7 +116,8 @@ class RunImagesTest(unittest.TestCase):
                 stack.enter_context(patch.object(rf, "RUN_DIR", Path(directory)))
                 config = dict(
                     games=["counter"], environment=rf.EnvironmentConfig("example", {}, []),
-                    agent="agent_v1", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
+                    agent="agent_v1_07_wstop2", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
+                    agent_docker_build_args={"CODEX_VERSION": "0.153.4"},
                 )
                 if controller is accounts_controller:
                     config["accounts"] = ["codex01"]
@@ -133,6 +135,8 @@ class RunImagesTest(unittest.TestCase):
                 def schedule(*_args, images):
                     self.remove.assert_not_called()
                     self.assertEqual(self.build.call_args.args[2], images)
+                    self.assertEqual(self.build.call_args.kwargs,
+                                     {"agent_docker_build_args": {"CODEX_VERSION": "0.153.4"}})
                     return 0
 
                 stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))

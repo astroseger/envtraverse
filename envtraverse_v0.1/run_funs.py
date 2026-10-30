@@ -214,6 +214,32 @@ def parse_agent_name(config: dict[str, object], path: Path) -> str:
     return name
 
 
+def parse_agent_docker_build_args(config: dict[str, object], path: Path) -> dict[str, str]:
+    arguments = config.get("agent_docker_build_args", {})
+    context = f"agent_docker_build_args in {path}"
+    if not isinstance(arguments, dict):
+        raise RuntimeError(f"{context} must be a mapping of argument names to strings")
+    if not arguments:
+        return {}
+
+    agent = parse_agent_name(config, path)
+    dockerfile = agent_directory(agent) / "Dockerfile"
+    declared = set(re.findall(
+        r"^[ \t]*(?i:ARG)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(?=[ \t=\r\n]|$)",
+        dockerfile.read_text(encoding="utf-8"), re.MULTILINE,
+    ))
+    for name, value in arguments.items():
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise RuntimeError(f"{context} contains an invalid argument name: {name!r}")
+        if name in {"USER_ID", "GROUP_ID"}:
+            raise RuntimeError(f"{context}: {name} is managed by the controller")
+        if name not in declared:
+            raise RuntimeError(f"{context}: {agent}/Dockerfile does not declare ARG {name}")
+        if not isinstance(value, str) or "\0" in value:
+            raise RuntimeError(f"{context}: {name} must be a string without NUL characters")
+    return dict(arguments)
+
+
 def environment_directory(name: str) -> Path:
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
         raise RuntimeError("environment must be a package name containing ASCII letters, digits, or underscores")
@@ -488,7 +514,12 @@ def remove_run_images(images: RunImages) -> None:
 
 
 @contextmanager
-def built_run_images(environment_name: str, agent_name: str) -> Iterator[RunImages]:
+def built_run_images(
+    environment_name: str,
+    agent_name: str,
+    *,
+    agent_docker_build_args: dict[str, str] | None = None,
+) -> Iterator[RunImages]:
     """Own three unique tags across building, account checks and scheduling."""
     images = RunImages.create()
     for image in asdict(images).values():
@@ -510,7 +541,8 @@ def built_run_images(environment_name: str, agent_name: str) -> Iterator[RunImag
             previous_handler = signal.signal(signum, interrupt_startup)
             cleanup.callback(signal.signal, signum, previous_handler)
         try:
-            build_dockers(environment_name, agent_name, images)
+            build_dockers(environment_name, agent_name, images,
+                          agent_docker_build_args=agent_docker_build_args)
             yield images
         finally:
             # A signal arriving during cleanup must not skip the remaining tags.
@@ -520,16 +552,26 @@ def built_run_images(environment_name: str, agent_name: str) -> Iterator[RunImag
             remove_run_images(images)
 
 
-def build_dockers(environment_name: str, agent_name: str, images: RunImages) -> None:
+def build_dockers(
+    environment_name: str,
+    agent_name: str,
+    images: RunImages,
+    *,
+    agent_docker_build_args: dict[str, str] | None = None,
+) -> None:
     environment_directory(environment_name)
     agent_directory(agent_name)
     if not BUILD_DOCKERS_SCRIPT.is_file():
         raise RuntimeError(f"docker build script does not exist: {BUILD_DOCKERS_SCRIPT}")
 
     command = ["bash", str(BUILD_DOCKERS_SCRIPT), environment_name, agent_name, images.agent, images.server, images.proxy]
+    for name, value in sorted((agent_docker_build_args or {}).items()):
+        command.extend(["--agent-build-arg", f"{name}={value}"])
     log_info("building docker images for environment %s and agent %s with %s",
              environment_name, agent_name, BUILD_DOCKERS_SCRIPT)
     LOGGER.info("run image tags=%s", asdict(images))
+    if agent_docker_build_args:
+        LOGGER.info("agent Docker build arguments=%s", agent_docker_build_args)
     process = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
     try:
         return_code = process.wait()
