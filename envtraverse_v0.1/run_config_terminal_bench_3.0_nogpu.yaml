@@ -1,0 +1,89 @@
+agent: agent_v1_07_wstop2
+agent_docker_build_args:
+  CODEX_VERSION: "0.166.0"
+http_read_timeout_seconds: 36300             # 10 hours 5 minutes
+supervisor_inactivity_timeout_seconds: 39600  # 11 hours
+environment: terminal_bench
+
+server_mounts:
+  - source: ./run_tb/socket
+    target: /run/terminal-bench
+
+# Terminal-Bench v3.0.0: 70 of 74 manifest tasks with no GPU requirement.
+# Neither the task environment nor the verifier environment requests a GPU.
+# Source commit: 2b0442c3c583b710ca8da14c8e601b99f2f1f244
+games:
+  - terminal-bench-3.0-atrx-vep-crispr
+  - terminal-bench-3.0-batched-eval-parity
+  - terminal-bench-3.0-biped-contact-dynamics
+  - terminal-bench-3.0-bun-sourcemap-leak
+  - terminal-bench-3.0-cad-model
+  - terminal-bench-3.0-cargo-flight-dispatch
+  - terminal-bench-3.0-cli-2ph-simplex
+  - terminal-bench-3.0-coq-block-bound
+  - terminal-bench-3.0-ctr-optimization
+  - terminal-bench-3.0-cumulative-layout-shift
+  - terminal-bench-3.0-data-anonymization
+  - terminal-bench-3.0-distributed-dedup
+  - terminal-bench-3.0-embedding-drift-monitor
+  - terminal-bench-3.0-erp-procurement-planning
+  - terminal-bench-3.0-fin-saccr-rwa
+  - terminal-bench-3.0-fix-uautomizer-soundness
+  - terminal-bench-3.0-foodstuff-beta-activity
+  - terminal-bench-3.0-formal-crypto
+  - terminal-bench-3.0-freecad-impeller
+  - terminal-bench-3.0-freecad-platform-drawing
+  - terminal-bench-3.0-freecad-spring-clip
+  - terminal-bench-3.0-freight-dispatch-shift
+  - terminal-bench-3.0-glycan-ms2-elucidation
+  - terminal-bench-3.0-gpt2-codegolf
+  - terminal-bench-3.0-gsea-proteomics
+  - terminal-bench-3.0-heat-pump-warranty
+  - terminal-bench-3.0-hof-topology-interpenetration
+  - terminal-bench-3.0-html-js-filter
+  - terminal-bench-3.0-ico-path-patch
+  - terminal-bench-3.0-interleaved-vigenere
+  - terminal-bench-3.0-intrastat-meldung
+  - terminal-bench-3.0-ks-solver-cpp
+  - terminal-bench-3.0-kv-live-surgery
+  - terminal-bench-3.0-lake-temp-glm
+  - terminal-bench-3.0-layout-config-recreation
+  - terminal-bench-3.0-layout-config-recreation2
+  - terminal-bench-3.0-lean-midpoint-proof
+  - terminal-bench-3.0-legacy-utility-triage
+  - terminal-bench-3.0-live-database-cutover
+  - terminal-bench-3.0-medical-claims-processing
+  - terminal-bench-3.0-memcached-backdoor
+  - terminal-bench-3.0-mp-checkpoint-consolidation
+  - terminal-bench-3.0-music-harmony
+  - terminal-bench-3.0-mvcc-lsm-compaction
+  - terminal-bench-3.0-nextjs-performance
+  - terminal-bench-3.0-ontology-kg-querying
+  - terminal-bench-3.0-payments-pipeline-fix
+  - terminal-bench-3.0-photonic-waveguide-routing
+  - terminal-bench-3.0-pretrain-shard-corruption
+  - terminal-bench-3.0-production-planning
+  - terminal-bench-3.0-protein-autointerp-disulfide
+  - terminal-bench-3.0-react-lead-form
+  - terminal-bench-3.0-retro-console-soc
+  - terminal-bench-3.0-risk-scorer-replay
+  - terminal-bench-3.0-roy-polymorph-cn
+  - terminal-bench-3.0-rs-archive-clone
+  - terminal-bench-3.0-satb-audio-transcription
+  - terminal-bench-3.0-session-window-debug
+  - terminal-bench-3.0-sglang-qwen-burst
+  - terminal-bench-3.0-shadow-relay
+  - terminal-bench-3.0-sound-change-cascade
+  - terminal-bench-3.0-takens-embedding-lean
+  - terminal-bench-3.0-telecom-entity-resolution
+  - terminal-bench-3.0-uefi-bootkit
+  - terminal-bench-3.0-vba-userform-port
+  - terminal-bench-3.0-vf2-speedup-networkx
+  - terminal-bench-3.0-vllm-deepseek-streaming
+  - terminal-bench-3.0-vpp-loss-divergence
+  - terminal-bench-3.0-wal-recovery-ordering
+  - terminal-bench-3.0-wdm-design
+
+codex_accounts: [codex01]
+model: gpt-5.6-sol
+reasoning_effort: max

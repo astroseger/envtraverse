@@ -1,0 +1,82 @@
+agent: agent_v1_07_wstop2
+agent_docker_build_args:
+  CODEX_VERSION: "0.166.0"
+http_read_timeout_seconds: 36300             # 10 hours 5 minutes
+supervisor_inactivity_timeout_seconds: 39600  # 11 hours
+environment: terminal_bench
+
+server_mounts:
+  - source: ./run_tb/socket
+    target: /run/terminal-bench
+
+# Terminal-Bench v4.0.0: 63 of 66 manifest tasks with no GPU requirement.
+# Neither the task environment nor the verifier environment requests a GPU.
+# Source commit: 452bf305c6daa62fc59061d22133a7cbc7c1572e
+games:
+  - terminal-bench-4.0-atrx-vep-crispr
+  - terminal-bench-4.0-batched-eval-parity
+  - terminal-bench-4.0-biped-contact-dynamics
+  - terminal-bench-4.0-bun-sourcemap-leak
+  - terminal-bench-4.0-cad-model
+  - terminal-bench-4.0-cargo-flight-dispatch
+  - terminal-bench-4.0-coq-block-bound
+  - terminal-bench-4.0-ctr-optimization
+  - terminal-bench-4.0-cumulative-layout-shift
+  - terminal-bench-4.0-data-anonymization
+  - terminal-bench-4.0-distributed-dedup
+  - terminal-bench-4.0-embedding-drift-monitor
+  - terminal-bench-4.0-fin-saccr-rwa
+  - terminal-bench-4.0-foodstuff-beta-activity
+  - terminal-bench-4.0-formal-crypto
+  - terminal-bench-4.0-freecad-impeller
+  - terminal-bench-4.0-freecad-platform-drawing
+  - terminal-bench-4.0-freecad-spring-clip
+  - terminal-bench-4.0-freight-dispatch-shift
+  - terminal-bench-4.0-glycan-ms2-elucidation
+  - terminal-bench-4.0-gsea-proteomics
+  - terminal-bench-4.0-heat-pump-warranty
+  - terminal-bench-4.0-hof-topology-interpenetration
+  - terminal-bench-4.0-html-js-filter
+  - terminal-bench-4.0-interleaved-vigenere
+  - terminal-bench-4.0-intrastat-meldung
+  - terminal-bench-4.0-ks-solver-cpp
+  - terminal-bench-4.0-kv-live-surgery
+  - terminal-bench-4.0-lake-temp-glm
+  - terminal-bench-4.0-layout-config-recreation
+  - terminal-bench-4.0-layout-config-recreation2
+  - terminal-bench-4.0-legacy-utility-triage
+  - terminal-bench-4.0-live-database-cutover
+  - terminal-bench-4.0-medical-claims-processing
+  - terminal-bench-4.0-mp-checkpoint-consolidation
+  - terminal-bench-4.0-music-harmony
+  - terminal-bench-4.0-mvcc-lsm-compaction
+  - terminal-bench-4.0-nextjs-performance
+  - terminal-bench-4.0-ontology-kg-querying
+  - terminal-bench-4.0-payments-pipeline-fix
+  - terminal-bench-4.0-photonic-waveguide-routing
+  - terminal-bench-4.0-pretrain-shard-corruption
+  - terminal-bench-4.0-production-planning
+  - terminal-bench-4.0-protein-autointerp-disulfide
+  - terminal-bench-4.0-react-lead-form
+  - terminal-bench-4.0-retro-console-soc
+  - terminal-bench-4.0-risk-scorer-replay
+  - terminal-bench-4.0-roy-polymorph-cn
+  - terminal-bench-4.0-rs-archive-clone
+  - terminal-bench-4.0-satb-audio-transcription
+  - terminal-bench-4.0-session-window-debug
+  - terminal-bench-4.0-sglang-qwen-burst
+  - terminal-bench-4.0-shadow-relay
+  - terminal-bench-4.0-sound-change-cascade
+  - terminal-bench-4.0-takens-embedding-lean
+  - terminal-bench-4.0-telecom-entity-resolution
+  - terminal-bench-4.0-uefi-bootkit
+  - terminal-bench-4.0-vba-userform-port
+  - terminal-bench-4.0-vf2-speedup-networkx
+  - terminal-bench-4.0-vllm-deepseek-streaming
+  - terminal-bench-4.0-vpp-loss-divergence
+  - terminal-bench-4.0-wal-recovery-ordering
+  - terminal-bench-4.0-wdm-design
+
+codex_accounts: [codex01]
+model: gpt-5.6-sol
+reasoning_effort: max
