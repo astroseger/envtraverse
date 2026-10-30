@@ -446,7 +446,8 @@ class LauncherTest(unittest.TestCase):
                         self.assertTrue((game_dir / "client" / ".client.lock").is_file())
                         self.assertEqual(
                             json.loads((game_dir / "client" / "client_config.json").read_text(encoding="utf-8")),
-                            {"server_url": f"http://env-server:{rf.SERVER_PORT}", "observations_path": "/observations"},
+                            {"server_url": f"http://env-server:{rf.SERVER_PORT}", "observations_path": "/observations",
+                             "http_read_timeout_seconds": 3900.0},
                         )
                         for directory in (game_dir / "client", game_dir / "observations"):
                             for path in (directory, *directory.rglob("*")):

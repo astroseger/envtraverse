@@ -57,7 +57,7 @@ else:
         docker.write_text('#!/bin/sh\nexit 0\n')
         docker.chmod(0o755)
         self.env = dict(os.environ)
-        for name in ["TB21_ROOT", "TB3_ROOT", "TB4_ROOT", "TB_VENV", "TB_RESULTS", "TB_TEST_OUTPUT",
+        for name in ["TB21_ROOT", "TB3_ROOT", "TB4_ROOT", "TBSCIENCE_ROOT", "TB_VENV", "TB_RESULTS", "TB_TEST_OUTPUT",
                      "TB_ENVIRONMENT_KWARGS", "TB_ENVIRONMENT_TYPE", "TB_SOCKET_DIR", "TB_TEST_PARALLEL"]:
             self.env.pop(name, None)
         self.env.update(COMMAND_LOG=str(self.log), PYTHON=str(fake), BOOTSTRAP_PYTHON=str(fake),
@@ -94,24 +94,26 @@ else:
         self.assertIn("SCRIPT-DISPATCH-TEST-DOUBLE", (self.host / "tb21-games.generated.yaml").read_text())
         self.assertFalse((self.host / "tb3-games.generated.yaml").exists())
         self.assertFalse((self.host / "tb4-games.generated.yaml").exists())
+        self.assertFalse((self.host / "tbscience-games.generated.yaml").exists())
 
     def test_explicit_all_still_downloads_all_versions(self):
         self.run_script("setup.sh", "--benchmarks", "all")
         calls = [c for c in self.calls("terminal_bench.datasets") if c[2] == "fetch"]
         self.assertEqual([c[c.index("--benchmark")+1] for c in calls],
-                         ["terminal-bench-2.1", "terminal-bench-3.0", "terminal-bench-4.0"])
-        for label in ["tb21", "tb3", "tb4"]:
+                         ["terminal-bench-2.1", "terminal-bench-3.0", "terminal-bench-4.0", "terminal-bench-science-0.1"])
+        for label in ["tb21", "tb3", "tb4", "tbscience"]:
             self.assertIn("SCRIPT-DISPATCH-TEST-DOUBLE", (self.host / f"{label}-games.generated.yaml").read_text())
 
     def test_default_setup_does_not_modify_existing_optional_checkout_lists(self):
         self.checkout("3-0")
         self.checkout("4-0")
-        for label in ["tb3", "tb4"]:
+        self.checkout("science-0-1")
+        for label in ["tb3", "tb4", "tbscience"]:
             (self.host / f"{label}-games.generated.yaml").write_text("EXISTING OPTIONAL LIST")
         self.run_script("setup.sh")
         calls = [c for c in self.calls("terminal_bench.datasets") if c[2] == "fetch"]
         self.assertEqual(len(calls), 1)
-        for label in ["tb3", "tb4"]:
+        for label in ["tb3", "tb4", "tbscience"]:
             self.assertEqual((self.host / f"{label}-games.generated.yaml").read_text(),
                              "EXISTING OPTIONAL LIST")
 
@@ -125,10 +127,24 @@ else:
     def test_invalid_setup_arguments_fail_before_install(self):
         for args in [("--benchmarks", "5.0"), ("--benchmarks", "3.0,3.0"),
                      ("--benchmarks", "3.0,"), ("--benchmarks", "3.0,,4.0"),
-                     ("--tb3-ref",), ("--benchmarks", "4.0", "--ref", "wrong")]:
+                     ("--tb3-ref",), ("--benchmarks", "4.0", "--ref", "wrong"),
+                     ("--tbscience-ref",), ("--tbscience-ref", "unselected"),
+                     ("--benchmarks", "science-0.1,science-0.1")]:
             with self.subTest(args=args):
                 self.run_script("setup.sh", *args, success=False)
         self.assertEqual(self.calls(), [])
+
+    def test_science_setup_uses_its_root_ref_and_generated_list(self):
+        destination = str(self.root / "science checkout")
+        self.run_script("setup.sh", "--benchmarks", "science-0.1", "--tbscience-ref", "science-ref",
+                        extra_env={"TBSCIENCE_ROOT": destination})
+        calls = self.calls("terminal_bench.datasets")
+        self.assertEqual(calls[0], ["-m", "terminal_bench.datasets", "fetch", "--benchmark",
+                                   "terminal-bench-science-0.1", "--destination", destination,
+                                   "--ref", "science-ref"])
+        self.assertEqual(calls[1], ["-m", "terminal_bench.datasets", "list", "--tbscience-root", destination,
+                                   "--benchmark", "terminal-bench-science-0.1", "--format", "yaml"])
+        self.assertIn("SCRIPT-DISPATCH-TEST-DOUBLE", (self.host / "tbscience-games.generated.yaml").read_text())
 
     def test_setup_stops_on_failed_download(self):
         self.run_script("setup.sh", "--benchmarks", "all", success=False, extra_env={"FAIL_BENCHMARK": "terminal-bench-3.0"})
@@ -143,13 +159,20 @@ else:
         self.assertIn(root3, calls[0])
         self.assertNotIn("--tb21-root", calls[0])
         self.assertNotIn("--tb4-root", calls[0])
+        self.assertNotIn("--tbscience-root", calls[0])
+
+    def test_list_discovers_science_checkout(self):
+        root = self.checkout("science-0-1")
+        self.run_script("list_tasks.sh", "--benchmark", "terminal-bench-science-0.1")
+        self.assertEqual(self.calls("terminal_bench.datasets"), [["-m", "terminal_bench.datasets", "list",
+            "--tbscience-root", root, "--benchmark", "terminal-bench-science-0.1"]])
 
     def test_runtime_uses_shared_socket_and_project_results_from_any_cwd(self):
-        for suffix in ("2-1", "3-0", "4-0"):
+        for suffix in ("2-1", "3-0", "4-0", "science-0-1"):
             self.checkout(suffix)
         self.run_script("run.sh")
         call = self.calls("terminal_bench.runtime")[0]
-        for flag in ("--tb21-root", "--tb3-root", "--tb4-root"):
+        for flag in ("--tb21-root", "--tb3-root", "--tb4-root", "--tbscience-root"):
             self.assertIn(flag, call)
         self.assertEqual(call[call.index("--socket") + 1], "socket/runtime.sock")
         self.assertEqual(call[call.index("--output") + 1], str(self.root / "run_tb/results"))

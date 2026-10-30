@@ -5,7 +5,9 @@ from pathlib import Path
 import shutil
 
 from agent_api import AgentMount, LaunchPreparation
-from .agent.client.client_storage import initialize_client_storage
+from .agent.client.client_storage import (
+    DEFAULT_HTTP_READ_TIMEOUT_SECONDS, initialize_client_storage, positive_timeout_seconds,
+)
 
 
 AGENT_SOURCE_DIR = Path(__file__).resolve().parent / "agent"
@@ -44,6 +46,14 @@ def prepare_run(
     ):
         raise RuntimeError("max_recovery_attempts in run config must be a non-negative integer")
 
+    timeouts = {}
+    for name in ("http_read_timeout_seconds", "supervisor_inactivity_timeout_seconds"):
+        if name in parsed_run_config:
+            try:
+                timeouts[name] = positive_timeout_seconds(parsed_run_config[name], name)
+            except ValueError as exc:
+                raise RuntimeError(f"{exc} in run config") from None
+
     command = [
         "python3", "agent_runner.py", game_alias,
         "--model", model, "--reasoning-effort", reasoning_effort,
@@ -52,6 +62,9 @@ def prepare_run(
         command.extend(["--recovery-delay-seconds", str(recovery_delay_seconds)])
     if max_recovery_attempts != 10:
         command.extend(["--max-recovery-attempts", str(max_recovery_attempts)])
+    if "supervisor_inactivity_timeout_seconds" in timeouts:
+        command.extend(["--supervisor-inactivity-timeout-seconds",
+                        str(timeouts["supervisor_inactivity_timeout_seconds"])])
 
     agent_run_dir = run_dir / "run"
     client_dir = run_dir / "client"
@@ -74,6 +87,7 @@ def prepare_run(
         client_dir, observations_dir,
         server_url=server_url,
         observations_path="/observations",
+        http_read_timeout_seconds=timeouts.get("http_read_timeout_seconds", DEFAULT_HTTP_READ_TIMEOUT_SECONDS),
     )
     return LaunchPreparation(
         command=command,

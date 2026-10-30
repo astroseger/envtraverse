@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from terminal_bench.description import environment_description
 from terminal_bench.lifecycle import SessionLifecycle
@@ -79,7 +79,7 @@ class GraceRaceTests(unittest.IsolatedAsyncioTestCase):
             directory.mkdir()
             session = ProcessSession(session_id="test-session", task_id="task", task_path=root,
                 output_dir=root, settings=TerminalSettings(), workspace_dir=root / "workspace", benchmark="test", task_name="task",
-                cleanup_grace_seconds=0.15, finish_grace_seconds=1)
+                cleanup_grace_seconds=0.15)
             released = asyncio.Event()
             async def rpc(method, **kwargs):
                 self.assertEqual(method, "close")
@@ -96,6 +96,31 @@ class GraceRaceTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 released.set()
             await asyncio.wait_for(pending, 1)
+
+    async def test_prepared_task_waits_past_former_finalization_deadline(self):
+        with tempfile.TemporaryDirectory(prefix="tb_finalization_") as temp:
+            root = Path(temp)
+            session = ProcessSession(session_id="test-session", task_id="task", task_path=root,
+                output_dir=root, settings=TerminalSettings(), workspace_dir=root / "workspace",
+                benchmark="test", task_name="task", cleanup_grace_seconds=0.1)
+            session.ready = True
+            released = asyncio.Event()
+            async def rpc(method, **kwargs):
+                await released.wait()
+                return {"closed": True}
+            session._rpc = rpc
+            # Advance the supervisor's clock beyond the former two-hour grace
+            # without changing the event loop clock or actually waiting hours.
+            clock = Mock()
+            clock.time.side_effect = [0, 10000]
+            with patch("terminal_bench.process_session.asyncio.get_running_loop", return_value=clock):
+                pending = asyncio.create_task(session._wait_for_close())
+                try:
+                    await asyncio.sleep(0.15)
+                    self.assertFalse(pending.done())
+                finally:
+                    released.set()
+                    await pending
 
     async def test_unrelated_lifecycle_record_cannot_extend_another_session(self):
         with tempfile.TemporaryDirectory(prefix="tb_grace_") as temp:

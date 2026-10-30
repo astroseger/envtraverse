@@ -13,6 +13,8 @@ import tempfile
 import time
 import unittest
 
+import yaml
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "run_controller_tb.py"
 FAKE_PROCESSES = r'''
@@ -41,13 +43,13 @@ def setup():
         signal.signal(signal.SIGTERM, stop)
         child = subprocess.Popen([sys.executable, '-u', __file__, 'setup_child'])
         wait_for('setup_child_started')
-        event('setup_started', cwd=os.getcwd())
+        event('setup_started', args=sys.argv[2:], cwd=os.getcwd())
         while not stopped:
             time.sleep(.01)
         child.wait(timeout=5)
         event('setup_stopped')
         return 0
-    event('setup_started', cwd=os.getcwd())
+    event('setup_started', args=sys.argv[2:], cwd=os.getcwd())
     print('setup output', flush=True)
     return OPTIONS.get('setup_exit', 0)
 
@@ -155,7 +157,7 @@ class TerminalBenchControllerTests(unittest.TestCase):
         helper.write_text(FAKE_PROCESSES)
         for script, mode in (("setup.sh", "setup"), ("run.sh", "runtime")):
             (self.host / script).write_text(
-                "#!/usr/bin/env bash\nexec " + shlex.join([sys.executable, "-u", str(helper), mode]) + "\n")
+                "#!/usr/bin/env bash\nexec " + shlex.join([sys.executable, "-u", str(helper), mode]) + ' "$@"\n')
         (self.root / "run_controller.py").write_text("from fake_processes import controller\nraise SystemExit(controller())\n")
         (self.root / "run_config.yaml").write_text("environment: terminal_bench\n")
         self.output_path = self.root / "output.log"
@@ -238,6 +240,8 @@ class TerminalBenchControllerTests(unittest.TestCase):
                           "runtime_stop_requested", "worker_completed", "runtime_completed")
         controller = next(event for event in self.events() if event["event"] == "controller_started")
         self.assertEqual(controller["args"], ["--run-config", str(config)])
+        setup = next(event for event in self.events() if event["event"] == "setup_started")
+        self.assertEqual(setup["args"], [])
         self.assertTrue(all(event["cwd"] == str(self.root) for event in self.events() if "cwd" in event))
         self.assertFalse((self.root / "worker_interrupted").exists())
         self.assertIn("[runtime] runtime output 149:", self.output())
@@ -349,10 +353,92 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.assertIn("must select environment: terminal_bench", self.output())
         self.assertEqual(self.events(), [])
 
+    def test_science_selection_forwards_setup_and_full_run_config(self):
+        source = SCRIPT.parent / "run_config_terminal_bench_science_0.1.yaml"
+        config = self.outside / "science config.yaml"
+        shutil.copyfile(source, config)
+        games = yaml.safe_load(config.read_text())["games"]
+        self.assertEqual(len(games), 70)
+        self.assertEqual(len(set(games)), 70)
+        process = self.start(arguments=["--benchmarks", "science-0.1", "--run-config", config.name])
+        self.finish(process)
+        setup = next(event for event in self.events() if event["event"] == "setup_started")
+        self.assertEqual(setup["args"], ["--benchmarks", "science-0.1"])
+        controller = next(event for event in self.events() if event["event"] == "controller_started")
+        self.assertEqual(controller["args"], ["--run-config", str(config)])
+        self.assertEqual(config.read_text(), source.read_text())
+
+    def test_combined_selection_accepts_mixed_games(self):
+        (self.root / "run_config.yaml").write_text(json.dumps({
+            "environment": "terminal_bench", "games": [
+                "terminal-bench-3.0-task", "terminal-bench-4.0-task",
+                "terminal-bench-science-0.1-domain/field/task", "smoke-test-smoke-test"]}))
+        selection = "3.0,4.0,science-0.1"
+        process = self.start(arguments=["--benchmarks", selection])
+        self.finish(process)
+        setup = next(event for event in self.events() if event["event"] == "setup_started")
+        self.assertEqual(setup["args"], ["--benchmarks", selection])
+
+    def test_all_selection_accepts_every_benchmark(self):
+        (self.root / "run_config.yaml").write_text(json.dumps({
+            "environment": "terminal_bench", "games": [
+                "terminal-bench-2.1-task", "terminal-bench-3.0-task", "terminal-bench-4.0-task",
+                "terminal-bench-science-0.1-domain/field/task", "smoke-test-smoke-test"]}))
+        process = self.start(arguments=["--benchmarks", "all"])
+        self.finish(process)
+        setup = next(event for event in self.events() if event["event"] == "setup_started")
+        self.assertEqual(setup["args"], ["--benchmarks", "all"])
+
+    def test_smoke_only_config_is_allowed_with_science_selection(self):
+        (self.root / "run_config.yaml").write_text(
+            "environment: terminal_bench\ngames: [smoke-test-smoke-test]\n")
+        self.finish(self.start(arguments=["--benchmarks", "science-0.1"]))
+
+    def test_omitted_selection_preserves_use_of_preinstalled_datasets(self):
+        (self.root / "run_config.yaml").write_text(
+            "environment: terminal_bench\ngames: [terminal-bench-science-0.1-domain/field/task]\n")
+        self.finish(self.start())
+        setup = next(event for event in self.events() if event["event"] == "setup_started")
+        self.assertEqual(setup["args"], [])
+
+    def test_games_outside_explicit_selection_fail_before_setup(self):
+        for game in ["terminal-bench-2.1-task", "terminal-bench-science-0.10-domain/field/task", "unknown"]:
+            with self.subTest(game=game):
+                (self.root / "run_config.yaml").write_text(json.dumps({
+                    "environment": "terminal_bench", "games": [
+                        "terminal-bench-science-0.1-domain/field/task", game]}))
+                process = self.start(arguments=["--benchmarks", "science-0.1"])
+                self.finish(process, 1)
+                self.assertIn("outside --benchmarks science-0.1", self.output())
+                self.assertIn(game, self.output())
+                self.assertEqual(self.events(), [])
+
+    def test_invalid_selections_fail_before_setup(self):
+        for selection in ["", "5.0", "science", "all,3.0", "3.0,3.0", "2.1,,3.0",
+                          ",2.1", "science-0.1,", " science-0.1"]:
+            with self.subTest(selection=selection):
+                process = self.start(arguments=["--benchmarks", selection])
+                self.finish(process, 2)
+                self.assertIn("--benchmarks", self.output())
+                self.assertEqual(self.events(), [])
+        self.finish(self.start(arguments=["--benchmarks"]), 2)
+        self.assertEqual(self.events(), [])
+
+    def test_explicit_selection_requires_a_valid_games_list(self):
+        for games in [None, [], "terminal-bench-2.1-task", [42], [" "]]:
+            with self.subTest(games=games):
+                (self.root / "run_config.yaml").write_text(json.dumps({
+                    "environment": "terminal_bench", "games": games}))
+                self.finish(self.start(arguments=["--benchmarks", "2.1"]), 1)
+                self.assertIn("non-empty list of non-empty strings", self.output())
+                self.assertEqual(self.events(), [])
+
     def test_help_does_not_start_setup(self):
         process = self.start(arguments=["--help"])
         self.finish(process)
         self.assertIn("--run-config", self.output())
+        self.assertIn("--benchmarks", self.output())
+        self.assertIn("science-0.1", self.output())
         self.assertEqual(self.events(), [])
 
 

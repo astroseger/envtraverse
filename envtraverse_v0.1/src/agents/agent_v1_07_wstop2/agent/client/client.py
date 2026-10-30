@@ -13,7 +13,7 @@ from typing import Any
 
 import requests
 
-from client_storage import ensure_readonly_directory, read_client_config, seal_storage, write_readonly_file
+from client_storage import ClientConfig, ensure_readonly_directory, read_client_config, seal_storage, write_readonly_file
 
 CLIENT_DIR = Path(__file__).resolve().parent
 # Replaced from the required configuration under the client lock before use.
@@ -23,10 +23,7 @@ CLIENT_STATE_PATH = CLIENT_DIR / ".client_session.json"
 CLIENT_LOCK_PATH = CLIENT_DIR / ".client.lock"
 ENVIRONMENT_DESCRIPTION_PATH = OBSERVATIONS_DIR / "environment_description.md"
 
-# Allow an hour of backend work plus five minutes to return or clean up.
 HTTP_CONNECT_TIMEOUT_SECONDS = 10.0
-HTTP_READ_TIMEOUT_SECONDS = 65 * 60.0
-HTTP_TIMEOUT = (HTTP_CONNECT_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS)
 
 # Internal server traffic must not inherit shell proxy or authentication settings.
 # This is local to this client process; the agent's own proxy settings are intact.
@@ -234,12 +231,15 @@ def parse_action_argument(action_text: str) -> dict[str, Any]:
 
 
 def post_json(
-    path: str, payload: dict[str, Any], session_token: str | None = None, *, server_url: str
+    path: str, payload: dict[str, Any], session_token: str | None = None, *, configuration: ClientConfig
 ) -> dict[str, Any]:
     headers: dict[str, str] = {}
     if session_token:
         headers["X-Session-Token"] = session_token
-    response = HTTP_SESSION.post(f"{server_url}{path}", json=payload, headers=headers, timeout=HTTP_TIMEOUT)
+    response = HTTP_SESSION.post(
+        f"{configuration.server_url}{path}", json=payload, headers=headers,
+        timeout=(HTTP_CONNECT_TIMEOUT_SECONDS, configuration.http_read_timeout_seconds),
+    )
     try:
         data = response.json()
     except ValueError:
@@ -249,11 +249,14 @@ def post_json(
     return data
 
 
-def get_json(path: str, session_token: str | None = None, *, server_url: str) -> dict[str, Any]:
+def get_json(path: str, session_token: str | None = None, *, configuration: ClientConfig) -> dict[str, Any]:
     headers: dict[str, str] = {}
     if session_token:
         headers["X-Session-Token"] = session_token
-    response = HTTP_SESSION.get(f"{server_url}{path}", headers=headers, timeout=HTTP_TIMEOUT)
+    response = HTTP_SESSION.get(
+        f"{configuration.server_url}{path}", headers=headers,
+        timeout=(HTTP_CONNECT_TIMEOUT_SECONDS, configuration.http_read_timeout_seconds),
+    )
     try:
         data = response.json()
     except ValueError:
@@ -272,12 +275,12 @@ def save_environment_description(payload: dict[str, Any]) -> Path:
 
 
 def repair_if_needed(
-    state: dict[str, Any], *, server_url: str,
+    state: dict[str, Any], *, configuration: ClientConfig,
 ) -> tuple[dict[str, Any] | None, SavedResponseArtifacts | None]:
     response = get_json(
         "/game/last-step",
         session_token=session_token_from_state(state),
-        server_url=server_url,
+        configuration=configuration,
     )
     server_step_index = int(response["step"]["step_index"])
 
@@ -312,7 +315,7 @@ def start_command(game_id: str) -> None:
             raise FileExistsError(f".client_session.json already exists: {CLIENT_STATE_PATH}")
         if any(OBSERVATIONS_DIR.iterdir()):
             raise FileExistsError(f"Observations folder must be empty for a new game: {OBSERVATIONS_DIR}")
-        response = post_json("/game/start", {"game_id": game_id}, server_url=configuration.server_url)
+        response = post_json("/game/start", {"game_id": game_id}, configuration=configuration)
         description_path = save_environment_description(response)
         created_paths = save_step_artifacts(response)
         write_client_state(
@@ -332,14 +335,14 @@ def move_command(action_text: str) -> None:
     payload: dict[str, Any] = {"action": action}
     with client_lock() as configuration:
         state = read_client_state()
-        repair_response, repaired_artifacts = repair_if_needed(state, server_url=configuration.server_url)
+        repair_response, repaired_artifacts = repair_if_needed(state, configuration=configuration)
         if bool(state["terminal"]):
             raise RuntimeError("Session is terminal; refusing to send another action.")
         response = post_json(
             "/game/action",
             payload,
             session_token=session_token_from_state(state),
-            server_url=configuration.server_url,
+            configuration=configuration,
         )
         saved_artifacts = save_response_artifacts(response)
         state["token"] = response["session"]["token"]
@@ -359,7 +362,7 @@ def move_command(action_text: str) -> None:
 def status_command() -> None:
     with client_lock() as configuration:
         state = read_client_state()
-        repair_response, repaired_artifacts = repair_if_needed(state, server_url=configuration.server_url)
+        repair_response, repaired_artifacts = repair_if_needed(state, configuration=configuration)
         step_index = int(state["step_index"])
         paths = saved_artifacts_for_step(step_index)
     if repair_response is not None and repaired_artifacts is not None:
@@ -378,7 +381,7 @@ def environment_description_command() -> None:
         result = get_json(
             "/game/environment-description",
             session_token=session_token_from_state(state),
-            server_url=configuration.server_url,
+            configuration=configuration,
         )
         save_environment_description(result)
     print(json.dumps(result, ensure_ascii=False))

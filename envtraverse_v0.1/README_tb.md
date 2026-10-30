@@ -25,9 +25,10 @@ Edit the agent, tasks, accounts, model, and effort in
 python3 run_controller_tb.py --run-config run_config_terminal_bench.yaml
 ```
 
-The wrapper installs the host dependencies and Terminal-Bench 2.1 data, starts
-the runtime, runs `run_controller.py`, and waits for grading and cleanup. Runtime
-output appears with a `[runtime]` prefix and is also saved to `run_tb/runtime.log`.
+The wrapper installs the host dependencies and selected benchmark data (2.1 by
+default), starts the runtime, runs `run_controller.py`, and waits for grading and
+cleanup. Runtime output appears with a `[runtime]` prefix and is also saved to
+`run_tb/runtime.log`.
 
 The supplied small configuration is:
 
@@ -57,6 +58,26 @@ For the full supplied task list, use:
 python3 run_controller_tb.py --run-config run_config_terminal_bench_2.1.yaml
 ```
 
+For all 70 tasks in Terminal-Bench-Science 0.1, use:
+
+```bash
+python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
+```
+
+The supplied [Science configuration](run_config_terminal_bench_science_0.1.yaml) lists the published
+`v0.1.0` tasks using slash-separated IDs. It selects `agent_v1_07_wstop2`, with
+`http_read_timeout_seconds: 36300` (10 hours 5 minutes) and
+`supervisor_inactivity_timeout_seconds: 39600` (11 hours) to accommodate long
+initialization. The Terminal-Bench manager defaults to no socket timeout;
+Harbor's native task time budgets still apply. Fast service tier is disabled.
+
+`--benchmarks` accepts `2.1`, `3.0`, `4.0`, `science-0.1`, comma-separated
+combinations such as `3.0,4.0`, or `all`, matching `setup.sh`. An explicit selection
+must include every benchmark named in the configuration's `games:` list; mismatches
+fail before setup. The bundled smoke test is allowed with any selection. The
+configuration still selects the tasks to execute: `all` prepares every dataset
+and runs the configured games. Omitting the option retains default TB2.1 setup.
+
 Always pass the intended configuration: without `--run-config`, the wrapper uses
 `run_config.yaml`. Concurrency follows `codex_accounts`. Grading can overlap later
 tasks, so host task containers may outnumber active agents.
@@ -76,11 +97,12 @@ Terminal-Bench 2.1 into `host_runtime/.tb-data/`. It reuses the recorded dataset
 revision on later runs. These reusable files are separate from experiment
 output; task images are prepared when tasks start.
 
-Optional datasets can be installed with `setup.sh --benchmarks 3.0,4.0` or
-`setup.sh --benchmarks all`. See the script's `--help` and
+Optional datasets can be installed with `setup.sh --benchmarks science-0.1`,
+`setup.sh --benchmarks 3.0,4.0`, or `setup.sh --benchmarks all`.
+See the script's `--help` and
 [dataset sources](src/server/environments/terminal_bench/host_runtime/UPSTREAM.md)
-for revision and location options. The wrapper always performs the default 2.1
-setup; use the manual sequence below for other datasets.
+for revision and location options. The wrapper forwards its `--benchmarks`
+selection to setup.
 
 ## API-key runs and manual runtime
 

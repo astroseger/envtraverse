@@ -32,6 +32,7 @@ class ClientConfigurationTest(unittest.TestCase):
         initialize_client_storage(self.client_dir, self.observations, server_url="http://localhost:12345/")
         self.assertEqual(read_client_config(self.client_dir).to_dict(), {
             "server_url": "http://localhost:12345", "observations_path": str(self.observations),
+            "http_read_timeout_seconds": 3900.0,
         })
         self.assertEqual(stat.S_IMODE(self.config_path.stat().st_mode), 0o444)
         self.assertEqual(stat.S_IMODE(self.client_dir.stat().st_mode), 0o555)
@@ -61,12 +62,33 @@ class ClientConfigurationTest(unittest.TestCase):
         self.assertEqual(list(self.client_dir.iterdir()), [])
         self.assertEqual(list(self.observations.iterdir()), [])
 
-    def test_configuration_requires_exactly_the_two_settings(self) -> None:
+    def test_configuration_requires_connection_settings_and_rejects_unknown_keys(self) -> None:
         for value in (None, [], "config", {}, {"server_url": "http://server"}, {
             "server_url": "http://server", "observations_path": "/observations", "unexpected": 1,
         }):
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "exactly"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "expected"):
                 ClientConfig.from_dict(value)
+
+    def test_old_configuration_uses_the_default_http_timeout(self) -> None:
+        self.config_path.write_text(json.dumps({
+            "server_url": "http://server:8879", "observations_path": "/observations",
+        }))
+        self.assertEqual(read_client_config(self.client_dir).http_read_timeout_seconds, 3900.0)
+
+    def test_configured_http_timeout_is_saved_and_loaded(self) -> None:
+        initialize_client_storage(self.client_dir, self.observations,
+                                  server_url="http://server:8879", http_read_timeout_seconds=36300)
+        self.assertEqual(read_client_config(self.client_dir).http_read_timeout_seconds, 36300.0)
+        self.assertEqual(json.loads(self.config_path.read_text())["http_read_timeout_seconds"], 36300.0)
+        self.assertEqual(stat.S_IMODE(self.config_path.stat().st_mode), 0o444)
+
+    def test_invalid_http_timeouts_fail_before_creating_storage(self) -> None:
+        for value in (None, True, False, "60", [], {}, 0, -1, float("nan"), float("inf"), 10**400):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "http_read_timeout_seconds"):
+                initialize_client_storage(self.client_dir, self.observations,
+                                          server_url="http://server:8879", http_read_timeout_seconds=value)
+            self.assertEqual(list(self.client_dir.iterdir()), [])
+            self.assertEqual(list(self.observations.iterdir()), [])
 
     def test_configuration_rejects_invalid_server_urls(self) -> None:
         for url in (

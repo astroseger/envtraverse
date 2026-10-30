@@ -30,11 +30,19 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         repo3, repo4 = self.root / "repo3", self.root / "repo4"
         shutil.copytree(repo, repo3)
         shutil.copytree(repo, repo4)
+        science = self.root / "science"
+        task = science / "tasks" / "physical-sciences" / "astronomy" / "quick"
+        shutil.copytree(repo / "tasks" / "quick", task)
+        (task / "task.toml").write_text('[task]\nname = "terminal-bench-science/quick"\n')
+        (science / "tasks" / "dataset.toml").write_text(
+            '[dataset]\nname = "terminal-bench-science/terminal-bench-science"\n'
+            '[[tasks]]\nname = "terminal-bench-science/quick"\n')
         self.service = RuntimeService(
-            socket_path=self.root / "runtime.sock", catalog=BenchmarkCatalog(repo, tb3_root=repo3, tb4_root=repo4),
+            socket_path=self.root / "runtime.sock",
+            catalog=BenchmarkCatalog(repo, tb3_root=repo3, tb4_root=repo4, tbscience_root=science),
             output_dir=self.root / "out", runs_dir=self.root / "run",
             session_factory=partial(ProcessSession, worker_factory="tests.process_fake:ControlledSession"),
-            cleanup_grace_seconds=0.25, finish_grace_seconds=5,
+            cleanup_grace_seconds=0.25,
         )
         await self.service.start()
         self.managers = []
@@ -123,19 +131,25 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads((self.root / "out" / a.session_id / "result.json").read_text())["status"], "finished")
         await asyncio.to_thread(a.stop)
 
-    async def test_force_close_bypasses_blocked_action_and_preserves_other_session(self):
+    async def test_close_acknowledges_while_prepared_action_finishes(self):
         a = self.manager()
         await self.start_manager(a)
         blocked = asyncio.create_task(asyncio.to_thread(a.move, {"id": "terminal_send", "terminal_id": "t1",
                                                                "keys": [{"text": "TEST_BLOCK"}]}))
         await self.file(a, "blocked")
         await asyncio.wait_for(asyncio.to_thread(a.stop), 10)
-        with self.assertRaises(EnvironmentError):
-            await blocked
+        try:
+            await asyncio.sleep(0.45)
+            self.assertFalse(blocked.done())
+            self.assertIsNone(self.service.sessions[a.session_id].process.returncode)
+            await self.quick_complete()
+        finally:
+            self.release(a)
+        await asyncio.wait_for(blocked, 5)
+        await self.service.completions[a.session_id]
         result = json.loads((await self.file(a, "result.json")).read_text())
-        self.assertEqual(result["status"], "error")
-        self.assertTrue(result["cleanup_required"])
-        await self.quick_complete()
+        self.assertEqual(result["status"], "finished")
+        self.assertNotIn("cleanup_required", result)
 
     async def test_force_close_can_cancel_blocked_start(self):
         a = self.manager()
@@ -176,24 +190,26 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(session.process.returncode)
         self.assertEqual(json.loads((await self.file(a, "result.json")).read_text())["status"], "finished")
 
-    async def test_three_benchmark_versions_use_separate_workers_and_results(self):
-        managers = [self.manager() for _ in range(3)]
-        versions = ["2.1", "3.0", "4.0"]
+    async def test_all_benchmarks_use_separate_workers_and_results(self):
+        managers = [self.manager() for _ in range(4)]
+        versions = ["2.1", "3.0", "4.0", "science-0.1"]
+        paths = ["quick", "quick", "quick", "physical-sciences/astronomy/quick"]
         starts = await asyncio.gather(*[
-            asyncio.to_thread(m.start_environment, f"terminal-bench-{v}-quick")
-            for m, v in zip(managers, versions)
+            asyncio.to_thread(m.start_environment, f"terminal-bench-{v}-{p}")
+            for m, v, p in zip(managers, versions, paths)
         ])
         pids = [json.loads(start.observation.files["worker.json"])["pid"] for start in starts]
-        self.assertEqual(len(set(pids)), 3)
+        self.assertEqual(len(set(pids)), 4)
         finals = await asyncio.gather(*[asyncio.to_thread(m.move, {"id": "finish"}) for m in managers])
-        for manager, version, final in zip(managers, versions, finals):
+        for manager, version, relative, final in zip(managers, versions, paths, finals):
             self.assertNotIn("result.json", final.files)
             await self.service.completions[manager.session_id]
             result = json.loads((self.root / "out" / manager.session_id / "result.json").read_text())
             self.assertEqual(result["benchmark"], f"terminal-bench-{version}")
             self.assertEqual(result["session_id"], manager.session_id)
             record = json.loads((self.root / "out" / manager.session_id / "result.json").read_text())
-            self.assertEqual(record["game_id"], f"terminal-bench-{version}-quick")
+            self.assertEqual(record["game_id"], f"terminal-bench-{version}-{relative}")
+            self.assertEqual(record["task_name"], relative)
 
     async def test_tb3_blocked_start_does_not_block_tb4(self):
         a, b = self.manager(), self.manager()
@@ -210,7 +226,7 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         await pending
         await asyncio.to_thread(a.stop)
 
-    async def test_close_after_timeout_uses_verification_grace_in_supervisor(self):
+    async def test_close_after_timeout_preserves_verification(self):
         a = self.manager()
         await self.start_manager(a, "timeout-verify")
         await self.file(a, "verifying")
@@ -228,7 +244,7 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["termination_reason"], "agent_timeout")
         self.assertNotIn("cleanup_required", result)
 
-    async def test_blocked_timeout_verifier_keeps_its_grace_without_blocking_peers(self):
+    async def test_blocked_timeout_verifier_waits_without_blocking_peers(self):
         a = self.manager()
         await self.start_manager(a, "blocked-timeout-verify")
         await self.file(a, "blocked")
@@ -252,14 +268,19 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(late.terminal)
         self.assertNotIn("result.json", late.files)
 
-    async def test_verification_grace_is_still_bounded(self):
+    async def test_runtime_shutdown_waits_for_verification_until_released(self):
         a = self.manager()
         await self.start_manager(a, "blocked-timeout-verify")
         await self.file(a, "blocked")
         worker = self.service.sessions[a.session_id]
-        worker.finish_grace_seconds = 0.45
-        await asyncio.wait_for(asyncio.to_thread(a.stop), 5)
+        stopping = asyncio.create_task(self.service.stop())
+        try:
+            await asyncio.sleep(0.45)
+            self.assertFalse(stopping.done())
+            self.assertIsNone(worker.process.returncode)
+        finally:
+            self.release(a)
+            await asyncio.wait_for(stopping, 5)
         result = json.loads((await self.file(a, "result.json")).read_text())
-        self.assertEqual(result["exception_type"], "WorkerForcedTermination")
-        self.assertTrue(result["cleanup_required"])
-        await self.quick_complete()
+        self.assertEqual(result["status"], "finished")
+        self.assertNotIn("cleanup_required", result)

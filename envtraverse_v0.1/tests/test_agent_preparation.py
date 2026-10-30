@@ -50,6 +50,7 @@ class AgentPreparationTest(unittest.TestCase):
                 ])
                 self.assertEqual(json.loads((run_dir / "client/client_config.json").read_text()), {
                     "server_url": "http://env-server:19234", "observations_path": "/observations",
+                    "http_read_timeout_seconds": 3900.0,
                 })
                 self.assertFalse((run_dir / "run/client").exists())
                 self.assertFalse((run_dir / "run/workspace_init").exists())

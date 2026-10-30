@@ -76,6 +76,63 @@ class SocketIntegrationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(EnvironmentStartError):
                 manager.start_environment(SMOKE_GAME)
 
+    async def test_default_and_null_timeout_allow_delayed_start(self):
+        start = FakeSession.start
+
+        async def delayed_start(session):
+            await asyncio.sleep(0.1)
+            return await start(session)
+
+        with patch.object(FakeSession, "start", delayed_start):
+            for parameters in ({}, {"request_timeout_seconds": None}):
+                with self.subTest(parameters=parameters):
+                    manager = self.manager(**parameters)
+                    self.assertIsNone(manager.client.timeout)
+                    try:
+                        result = await asyncio.wait_for(
+                            asyncio.to_thread(manager.start_environment, SMOKE_GAME), 2)
+                        self.assertIn("PUBLIC INSTRUCTION ONLY", result.environment_description)
+                    finally:
+                        await asyncio.to_thread(manager.stop)
+
+    async def test_numeric_timeout_still_limits_socket_wait(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        dispatch = self.service.dispatch
+
+        async def delayed_dispatch(request):
+            entered.set()
+            await release.wait()
+            return await dispatch(request)
+
+        manager = self.manager(request_timeout_seconds=0.05)
+        with patch.object(self.service, "dispatch", delayed_dispatch):
+            pending = asyncio.create_task(asyncio.to_thread(manager.client.call, "health"))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                done, _ = await asyncio.wait({pending}, timeout=2)
+                self.assertIn(pending, done, "Configured socket timeout did not expire")
+                with self.assertRaises(TimeoutError):
+                    await pending
+            finally:
+                release.set()
+                await asyncio.gather(pending, return_exceptions=True)
+
+    async def test_no_timeout_still_reports_connection_closure(self):
+        async def close_connection(reader, writer):
+            writer.close()
+            await writer.wait_closed()
+
+        path = self.root / "closed.sock"
+        server = await asyncio.start_unix_server(close_connection, path=path)
+        try:
+            manager = EnvironmentManager({"socket_path": str(path)})
+            with self.assertRaises(ConnectionError):
+                await asyncio.wait_for(asyncio.to_thread(manager.client.call, "health"), 2)
+        finally:
+            server.close()
+            await server.wait_closed()
+
     async def test_exactly_one_start_even_when_first_fails(self):
         def scenario():
             manager = self.manager()
@@ -182,7 +239,7 @@ class SocketIntegrationTests(unittest.IsolatedAsyncioTestCase):
         for value in ["../a", "anything", None, 1]:
             with self.assertRaises(ValueError):
                 self.manager(session_id=value)
-        for timeout in [0, -1, True, float("nan")]:
+        for timeout in [0, -1, True, False, "3600", [], float("nan"), float("inf"), -float("inf")]:
             with self.assertRaises(ValueError):
                 self.manager(request_timeout_seconds=timeout)
 

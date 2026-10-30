@@ -34,7 +34,7 @@ def fetch(destination: Path, ref: str | None = None, *, repository: str | None =
           benchmark: str = "terminal-bench-2.1") -> dict[str, Any]:
     """Never update an existing checkout implicitly. repository permits offline tests.
 
-    New 3.0/4.0 downloads resolve their release tag, not the moving default branch.
+    New 3.0/4.0/Science downloads resolve their release tag, not the moving default branch.
     Explicit refs are operator overrides and are recorded as such in the lock.
     """
     if benchmark not in DATASETS:
@@ -116,7 +116,7 @@ def main() -> None:
     download = sub.add_parser("fetch", help="Download a benchmark and record its exact commit")
     download.add_argument("--benchmark", choices=list(DATASETS), default="terminal-bench-2.1")
     download.add_argument("--destination", type=Path, required=True)
-    download.add_argument("--ref", help="Override initial revision; defaults: TB3 v3.0.0, TB4 v4.0.0; TB2.1 HEAD")
+    download.add_argument("--ref", help="Override initial revision; defaults: TB3 v3.0.0, TB4 v4.0.0, Science v0.1.0; TB2.1 HEAD")
     listing = sub.add_parser("list", help="Print game IDs in the configured checkouts")
     add_catalog_arguments(listing)
     listing.add_argument("--benchmark", choices=["smoke-test", *DATASETS])

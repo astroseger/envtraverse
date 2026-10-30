@@ -71,6 +71,7 @@ class ClientIntegrationTest(unittest.TestCase):
         manager = MixedOutputManager({"target": 3})
         self.game_server = server.GameServer(manager, game_id="counter", game_alias="game1")
         self.http = server.create_app(self.game_server).test_client()
+        self.expected_http_timeout = (10.0, 3900.0)
         self.post = stack.enter_context(patch.object(client.HTTP_SESSION, "post", side_effect=self.http_post))
         self.get = stack.enter_context(patch.object(client.HTTP_SESSION, "get", side_effect=self.http_get))
         self.output = io.StringIO()
@@ -85,12 +86,12 @@ class ClientIntegrationTest(unittest.TestCase):
         return wrapped
 
     def http_post(self, url, *, json, headers, timeout):
-        self.assertEqual(timeout, (10.0, 3900.0))
+        self.assertEqual(timeout, self.expected_http_timeout)
         self.assert_storage_readonly()
         return self.requests_response(self.http.post(urlsplit(url).path, json=json, headers=headers))
 
     def http_get(self, url, *, headers, timeout):
-        self.assertEqual(timeout, (10.0, 3900.0))
+        self.assertEqual(timeout, self.expected_http_timeout)
         self.assert_storage_readonly()
         return self.requests_response(self.http.get(urlsplit(url).path, headers=headers))
 
@@ -136,6 +137,22 @@ class ClientIntegrationTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "terminal"):
             client.move_command('{"id":"INC"}')
         self.assertEqual(self.post.call_count, post_count)
+        self.assert_storage_readonly()
+
+    def test_configured_http_timeout_reaches_every_endpoint(self) -> None:
+        config_path = client.CLIENT_DIR / CLIENT_CONFIG_FILENAME
+        config = json.loads(config_path.read_text())
+        config["http_read_timeout_seconds"] = 36300
+        client.write_readonly_file(config_path, json.dumps(config).encode())
+        self.expected_http_timeout = (10.0, 36300.0)
+        client.start_command("game1")
+        client.move_command('{"id":"INC"}')
+        client.status_command()
+        client.environment_description_command()
+        self.assertEqual([urlsplit(call.args[0]).path for call in self.post.call_args_list],
+                         ["/game/start", "/game/action"])
+        self.assertEqual([urlsplit(call.args[0]).path for call in self.get.call_args_list],
+                         ["/game/last-step", "/game/last-step", "/game/environment-description"])
         self.assert_storage_readonly()
 
     def test_status_recovers_uncommitted_step_without_replaying_action(self) -> None:

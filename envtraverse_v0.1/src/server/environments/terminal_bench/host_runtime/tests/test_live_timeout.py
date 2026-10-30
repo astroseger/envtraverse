@@ -45,8 +45,7 @@ class LiveTimeoutTests(unittest.IsolatedAsyncioTestCase):
         verifier.write_text(lines[0] + "sleep 6\n" + "".join(lines[1:]))
         self.output = Path(os.environ.get("TB_TIMEOUT_OUTPUT", self.root / "results")).absolute()
         self.service = RuntimeService(socket_path=self.root / "runtime.sock", output_dir=self.output, runs_dir=self.root / "run",
-            catalog=BenchmarkCatalog(smoke_task=fixture), cleanup_grace_seconds=5,
-            finish_grace_seconds=120)
+            catalog=BenchmarkCatalog(smoke_task=fixture), cleanup_grace_seconds=5)
         self.addAsyncCleanup(self.service.stop)
         await self.service.start()
         self.manager = EnvironmentManager({"socket_path": str(self.root / "runtime.sock")})

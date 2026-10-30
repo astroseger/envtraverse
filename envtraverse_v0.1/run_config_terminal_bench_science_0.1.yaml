@@ -1,0 +1,86 @@
+agent: agent_v1_07_wstop2
+http_read_timeout_seconds: 36300             # 10 hours 5 minutes
+supervisor_inactivity_timeout_seconds: 39600  # 11 hours
+environment: terminal_bench
+
+server_mounts:
+  - source: ./run_tb/socket
+    target: /run/terminal-bench
+
+# Published Terminal-Bench-Science v0.1.0: all 70 manifest tasks.
+# Source commit: f81afac4f11048e77a15dfc8fb1dbfb897fea0ce
+games:
+  - terminal-bench-science-0.1-earth-sciences/atmospheric-sciences/sparse-network-assimilation
+  - terminal-bench-science-0.1-earth-sciences/environmental-sciences/hysteretic-aquifer-control
+  - terminal-bench-science-0.1-earth-sciences/geosciences/duan-thesis
+  - terminal-bench-science-0.1-earth-sciences/geosciences/hbv-calibration-1
+  - terminal-bench-science-0.1-earth-sciences/geosciences/mendota-ice-phenology
+  - terminal-bench-science-0.1-earth-sciences/geosciences/stereo-dem-icesat2
+  - terminal-bench-science-0.1-earth-sciences/geosciences/supraglacial-lake-classification
+  - terminal-bench-science-0.1-earth-sciences/ocean-sciences/masked-spherical-remap
+  - terminal-bench-science-0.1-engineering-sciences/chemical-engineering/reactor-safety-control
+  - terminal-bench-science-0.1-engineering-sciences/civil-engineering/rolling-shutter-oma
+  - terminal-bench-science-0.1-engineering-sciences/electrical-engineering/microarch-modeling
+  - terminal-bench-science-0.1-engineering-sciences/electrical-engineering/navigation-sensor-calibration
+  - terminal-bench-science-0.1-engineering-sciences/mechanical-engineering/baseline-free-localization
+  - terminal-bench-science-0.1-engineering-sciences/mechanical-engineering/guided-wave-localization
+  - terminal-bench-science-0.1-engineering-sciences/mechanical-engineering/inelastic-constitutive-discovery
+  - terminal-bench-science-0.1-engineering-sciences/mechanical-engineering/tamp-skill-planning
+  - terminal-bench-science-0.1-engineering-sciences/mechanical-engineering/virtual-baseline-localization
+  - terminal-bench-science-0.1-life-sciences/biology/ambient-rna-correction
+  - terminal-bench-science-0.1-life-sciences/biology/betalactam-multimodal-transfer
+  - terminal-bench-science-0.1-life-sciences/biology/cell-lineage-reconstruction
+  - terminal-bench-science-0.1-life-sciences/biology/cilia-segmentation
+  - terminal-bench-science-0.1-life-sciences/biology/diag-chipseq
+  - terminal-bench-science-0.1-life-sciences/biology/genomic-model-ranking
+  - terminal-bench-science-0.1-life-sciences/biology/ont-tn-qc
+  - terminal-bench-science-0.1-life-sciences/biology/protein-active-learning
+  - terminal-bench-science-0.1-life-sciences/ecology/animal-reid
+  - terminal-bench-science-0.1-life-sciences/medicine/ankle-mri-findings
+  - terminal-bench-science-0.1-life-sciences/medicine/clinical-metadata-recovery
+  - terminal-bench-science-0.1-life-sciences/medicine/dapi-he-alignment
+  - terminal-bench-science-0.1-life-sciences/medicine/longitudinal-clinical-agent
+  - terminal-bench-science-0.1-life-sciences/medicine/spatial-cell-annotation
+  - terminal-bench-science-0.1-life-sciences/medicine/tumor-immune-interface
+  - terminal-bench-science-0.1-life-sciences/neuroscience/eeg-erp-recovery
+  - terminal-bench-science-0.1-life-sciences/neuroscience/foraging-cognitive-model
+  - terminal-bench-science-0.1-life-sciences/neuroscience/mri-harmonization
+  - terminal-bench-science-0.1-life-sciences/neuroscience/qsm-reconstruction
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/amr-poisson-optimize
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/dna-storage-codec
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/koopman-mfg-id
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/localized-sspd-solver
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/ode-law-discovery
+  - terminal-bench-science-0.1-mathematical-sciences/applied-mathematics/traffic-flux-inversion
+  - terminal-bench-science-0.1-mathematical-sciences/formal-mathematics/finite-free-stam
+  - terminal-bench-science-0.1-mathematical-sciences/formal-mathematics/gen-turan-paths
+  - terminal-bench-science-0.1-mathematical-sciences/formal-mathematics/onsager-ising-lean
+  - terminal-bench-science-0.1-mathematical-sciences/operations-research/certified-sparse-regression
+  - terminal-bench-science-0.1-mathematical-sciences/operations-research/energy-routing
+  - terminal-bench-science-0.1-mathematical-sciences/operations-research/linked-cell-suppression
+  - terminal-bench-science-0.1-mathematical-sciences/operations-research/noisy-blackbox-optimization
+  - terminal-bench-science-0.1-mathematical-sciences/operations-research/regularized-game-proof
+  - terminal-bench-science-0.1-mathematical-sciences/statistics/highdim-mediation-debiasing
+  - terminal-bench-science-0.1-mathematical-sciences/statistics/small-area-equivalence
+  - terminal-bench-science-0.1-mathematical-sciences/statistics/symbolic-regression
+  - terminal-bench-science-0.1-physical-sciences/astronomy/3x2pt-inference
+  - terminal-bench-science-0.1-physical-sciences/astronomy/cmb-cross-inference
+  - terminal-bench-science-0.1-physical-sciences/astronomy/neo-orbit-determination
+  - terminal-bench-science-0.1-physical-sciences/astronomy/rv-astrometry-fitting
+  - terminal-bench-science-0.1-physical-sciences/astronomy/tess-transit-vetting
+  - terminal-bench-science-0.1-physical-sciences/astronomy/variable-star-vetting
+  - terminal-bench-science-0.1-physical-sciences/chemistry/geometric-pharmacophore-alignment
+  - terminal-bench-science-0.1-physical-sciences/chemistry/rdkit-ic-constraints
+  - terminal-bench-science-0.1-physical-sciences/materials-science/nanoindentation-property-extraction
+  - terminal-bench-science-0.1-physical-sciences/materials-science/si-fracture-fbc
+  - terminal-bench-science-0.1-physical-sciences/materials-science/stacking-disorder-diffraction
+  - terminal-bench-science-0.1-physical-sciences/materials-science/xrd-multiphase-qpa
+  - terminal-bench-science-0.1-physical-sciences/physics/frustrated-heisenberg-nqs
+  - terminal-bench-science-0.1-physical-sciences/physics/inverse-lithography
+  - terminal-bench-science-0.1-physical-sciences/physics/inverse-waveguide-shape
+  - terminal-bench-science-0.1-physical-sciences/physics/leaky-bloch-meep
+  - terminal-bench-science-0.1-physical-sciences/physics/spin-glass-groundstate
+
+codex_accounts: [codex01]
+model: gpt-5.6-sol
+reasoning_effort: max

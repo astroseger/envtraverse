@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -43,6 +44,9 @@ class AgentV1RecoveryDelayPreparationTest(unittest.TestCase):
                     "--model", "test-model", "--reasoning-effort", "medium",
                 ])
                 self.assertEqual(self.runner.parse_args(preparation.command[2:]).recovery_delay_seconds, 0)
+                self.assertEqual(self.runner.parse_args(preparation.command[2:]).supervisor_inactivity_timeout_seconds, 7200)
+                self.assertEqual(json.loads((Path(directory) / "client/client_config.json").read_text())[
+                    "http_read_timeout_seconds"], 3900)
 
     def test_integer_and_fractional_delays_reach_the_runner(self) -> None:
         for delay in (60, 0.25):
@@ -89,9 +93,39 @@ class AgentV1RecoveryDelayPreparationTest(unittest.TestCase):
                     )
                 self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_timeouts_reach_the_supervisor_and_client(self) -> None:
+        for http_timeout, inactivity_timeout in ((36300, 39600), (0.25, 0.5)):
+            with self.subTest(http=http_timeout, inactivity=inactivity_timeout), tempfile.TemporaryDirectory() as directory:
+                preparation = self.prepare_run(
+                    Path(directory), "http://server:8879", "example",
+                    {"model": "test-model", "reasoning_effort": "medium",
+                     "http_read_timeout_seconds": http_timeout,
+                     "supervisor_inactivity_timeout_seconds": inactivity_timeout},
+                )
+                args = self.runner.parse_args(preparation.command[2:])
+                self.assertEqual(args.supervisor_inactivity_timeout_seconds, inactivity_timeout)
+                saved = json.loads((Path(directory) / "client/client_config.json").read_text())
+                self.assertEqual(saved["http_read_timeout_seconds"], http_timeout)
+                self.assertNotIn("supervisor_inactivity_timeout_seconds", saved)
+
+    def test_invalid_timeouts_fail_before_creating_run_files(self) -> None:
+        for key in ("http_read_timeout_seconds", "supervisor_inactivity_timeout_seconds"):
+            for value in (None, True, False, "60", [], {}, 0, -1, float("nan"), float("inf"), 10**400):
+                with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as directory:
+                    with self.assertRaisesRegex(RuntimeError, key):
+                        self.prepare_run(
+                            Path(directory), "http://server:8879", "example",
+                            {"model": "test-model", "reasoning_effort": "medium", key: value},
+                        )
+                    self.assertEqual(list(Path(directory).iterdir()), [])
+
 
 class WstopRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
     agent_name = "agent_v1_01_wstop"
+
+
+class Wstop2RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
+    agent_name = "agent_v1_07_wstop2"
 
 
 class WresetRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
@@ -111,11 +145,13 @@ class AgentV1RecoveryDelaySupervisorTest(unittest.TestCase):
             runner,
             CLIENT_STATE_PATH=self.state,
             RUNNER_LOG_FILE=self.root / "agent_runner.log",
+            LOG_FILE=self.root / "agent.log",
         ))
         self.enterContext(patch.multiple(inspector, CLIENT_STATE_PATH=self.state, OBSERVATIONS_DIR=self.root))
         self.log = self.enterContext(patch.object(runner, "log"))
         self.process = Mock(returncode=17)
         self.start = self.enterContext(patch.object(runner, "start_agent", return_value=self.process))
+        self.real_wait = runner.wait_for_agent
         self.wait = self.enterContext(patch.object(runner, "wait_for_agent", return_value="exited"))
         self.sleep = self.enterContext(patch.object(runner.time, "sleep"))
 
@@ -154,13 +190,13 @@ class AgentV1RecoveryDelaySupervisorTest(unittest.TestCase):
         self.assertNotIn("--recovery-delay-seconds", recovery_command)
         self.assertEqual(events.mock_calls, [
             call.start(master_command),
-            call.wait(self.process, "master"),
+            call.wait(self.process, "master", inactivity_timeout_seconds=7200),
             call.sleep(0.25),
             call.start(recovery_command),
-            call.wait(self.process, "recovery"),
+            call.wait(self.process, "recovery", inactivity_timeout_seconds=7200),
             call.sleep(0.25),
             call.start(recovery_command),
-            call.wait(self.process, "recovery"),
+            call.wait(self.process, "recovery", inactivity_timeout_seconds=7200),
         ])
         self.log.assert_any_call("agent_runner.py: waiting 0.25 seconds before recovery")
 
@@ -169,6 +205,54 @@ class AgentV1RecoveryDelaySupervisorTest(unittest.TestCase):
         self.assertEqual(self.runner.main(["example", "--recovery-delay-seconds", "60"]), 0)
         self.sleep.assert_called_once_with(60)
         self.assertEqual(self.start.call_count, 2)
+
+    def test_configured_inactivity_limit_applies_to_master_and_every_recovery(self) -> None:
+        self.wait.side_effect = ["stale", "exited", "stop"]
+        self.assertEqual(self.runner.main(["example", "--supervisor-inactivity-timeout-seconds", "39600"]), 0)
+        self.assertEqual(self.wait.call_args_list, [
+            call(self.process, "master", inactivity_timeout_seconds=39600),
+            call(self.process, "recovery", inactivity_timeout_seconds=39600),
+            call(self.process, "recovery", inactivity_timeout_seconds=39600),
+        ])
+
+    def test_custom_inactivity_limit_allows_silence_past_the_old_default(self) -> None:
+        self.process.poll.return_value = None
+        with (
+            patch.object(self.runner.time, "time", side_effect=[0, 7200, 36300, 39599, 39600]),
+            patch.object(self.runner, "inspect_and_should_stop", return_value=False) as inspect,
+            patch.object(self.runner, "terminate_agent") as terminate,
+        ):
+            self.assertEqual(self.real_wait(self.process, "master", inactivity_timeout_seconds=39600), "stale")
+        self.assertEqual(self.sleep.call_count, 3)
+        inspect.assert_called_once_with()
+        terminate.assert_called_once_with(self.process)
+
+    def test_agent_log_activity_restarts_the_configured_inactivity_window(self) -> None:
+        self.process.poll.return_value = None
+        self.runner.LOG_FILE.write_text("initial event\n")
+        os.utime(self.runner.LOG_FILE, (0, 0))
+        updates = iter((9, 18))
+
+        def update_log(_seconds):
+            timestamp = next(updates)
+            os.utime(self.runner.LOG_FILE, (timestamp, timestamp))
+
+        self.sleep.side_effect = update_log
+        with (
+            patch.object(self.runner.time, "time", side_effect=[0, 9, 18, 28]),
+            patch.object(self.runner, "inspect_and_should_stop", return_value=False),
+            patch.object(self.runner, "terminate_agent") as terminate,
+        ):
+            self.assertEqual(self.real_wait(self.process, "recovery", inactivity_timeout_seconds=10), "stale")
+        self.assertEqual(self.sleep.call_count, 2)
+        terminate.assert_called_once_with(self.process)
+
+    def test_invalid_cli_inactivity_limits_fail_before_starting_the_agent(self) -> None:
+        for value in ("0", "-1", "nan", "inf", "-inf", "1e400", "not-a-number"):
+            with self.subTest(value=value), patch("sys.stderr"), self.assertRaises(SystemExit) as error:
+                self.runner.main(["example", f"--supervisor-inactivity-timeout-seconds={value}"])
+            self.assertEqual(error.exception.code, 2)
+        self.start.assert_not_called()
 
     def test_no_extra_delay_after_the_recovery_limit(self) -> None:
         self.assertEqual(self.runner.main(["example", "--recovery-delay-seconds", "60"]), 0)
@@ -237,6 +321,10 @@ class AgentV1RecoveryDelaySupervisorTest(unittest.TestCase):
 
 class WstopRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
     agent_name = "agent_v1_01_wstop"
+
+
+class Wstop2RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
+    agent_name = "agent_v1_07_wstop2"
 
 
 class WresetRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):

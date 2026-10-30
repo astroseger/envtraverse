@@ -12,17 +12,40 @@ agent connects to the framework.
 
 ## Bundled agents
 
-All three use Codex and provide an environment-agnostic client to the LLM.
+All four use Codex and provide an environment-agnostic client to the LLM.
 
 | Agent | Scope |
 | --- | --- |
 | [agent_v1](agent_v1/) | Environment-agnostic |
 | [agent_v1_01_wstop](agent_v1_01_wstop/) | Environment-agnostic; changes the instruction for returning control |
+| [agent_v1_07_wstop2](agent_v1_07_wstop2/) | Environment-agnostic; alternate instructions for returning control |
 | [test_arc3_agent_v1_02_wstop_wreset](test_arc3_agent_v1_02_wstop_wreset/) | ARC-AGI-3-specific reset management |
 
 The agent controller starts Codex, supplies prompts, and resumes it as needed.
 Codex uses its workspace and the client to solve the task. The client saves the
 description, actions, and observations, but does not choose a strategy.
+
+All four accept these top-level run-config settings:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `model` | Required | Model name |
+| `reasoning_effort` | Required | Reasoning effort |
+| `recovery_delay_seconds` | `0` | Delay before each recovery attempt |
+| `max_recovery_attempts` | `10` | Recovery attempt limit; `0` disables recovery |
+| `http_read_timeout_seconds` | `3900` | HTTP response read timeout for every client command |
+| `supervisor_inactivity_timeout_seconds` | `7200` | Time without `agent.log` updates before stopping the agent |
+
+Both timeout settings require finite, positive numbers of seconds. The supervisor
+uses the same inactivity limit for the initial agent and every recovery attempt.
+It measures log inactivity, not total task duration. The HTTP connection timeout
+is 10 seconds. For long initialization, give the supervisor more time than the
+HTTP read timeout.
+
+The preparation hook stores `http_read_timeout_seconds` in the per-task
+`/client/client_config.json`, alongside `server_url` and `observations_path`.
+Older client configurations without that field use the 3900-second default.
+These settings apply to both subscription and API-key launches.
 
 ## Integrate an agent
 

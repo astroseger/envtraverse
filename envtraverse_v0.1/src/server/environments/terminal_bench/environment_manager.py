@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from .actions import validate_action
 from .compat import (
-    ENVIRONMENT_OPERATION_TIMEOUT_SECONDS, EnvironmentError, EnvironmentStartError,
-    FatalEnvironmentError, InvalidActionError, Observation, StartResult,
+    EnvironmentError, EnvironmentStartError, FatalEnvironmentError, InvalidActionError,
+    Observation, StartResult,
 )
 from .protocol import RuntimeClient, RuntimeFault, decode_observation
 from .records import session_key
@@ -32,9 +32,11 @@ class EnvironmentManager:
         path = parameters.get("socket_path", os.environ.get("TB_RUNTIME_SOCKET", "/run/terminal-bench/runtime.sock"))
         if not isinstance(path, str) or not os.path.isabs(path) or "\0" in path:
             raise ValueError("socket_path must be an absolute pathname")
-        timeout = parameters.get("request_timeout_seconds", ENVIRONMENT_OPERATION_TIMEOUT_SECONDS)
-        if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("request_timeout_seconds must be positive")
+        timeout = parameters.get("request_timeout_seconds")
+        if timeout is not None and (
+            type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
+        ):
+            raise ValueError("request_timeout_seconds must be null or a finite positive number")
         self.session_id = session_key(parameters.get("session_id", uuid4().hex))
         # Private per-manager capability: failed duplicate startup must not close another manager's session.
         self._owner_token = uuid4().hex

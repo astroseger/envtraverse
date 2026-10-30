@@ -17,6 +17,31 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME_START_TIMEOUT_SECONDS = 3600
+SUPPORTED_BENCHMARKS = ("2.1", "3.0", "4.0", "science-0.1")
+
+
+def parse_benchmarks(value: str) -> str:
+    versions = SUPPORTED_BENCHMARKS if value == "all" else value.split(",")
+    if any(version not in SUPPORTED_BENCHMARKS for version in versions):
+        raise argparse.ArgumentTypeError(
+            "choose 2.1, 3.0, 4.0, science-0.1, a comma-separated combination, or all")
+    if len(set(versions)) != len(versions):
+        raise argparse.ArgumentTypeError("benchmark selection contains duplicate versions")
+    return value
+
+
+def validate_benchmark_games(config: dict, run_config: Path, benchmarks: str) -> None:
+    games = config.get("games")
+    if (not isinstance(games, list) or not games
+            or any(not isinstance(game, str) or not game.strip() for game in games)):
+        raise RuntimeError(f"games in {run_config} must be a non-empty list of non-empty strings")
+    versions = SUPPORTED_BENCHMARKS if benchmarks == "all" else benchmarks.split(",")
+    prefixes = tuple(f"terminal-bench-{version}-" for version in versions)
+    mismatches = [game for game in games
+                  if game != "smoke-test-smoke-test" and not game.startswith(prefixes)]
+    if mismatches:
+        raise RuntimeError(
+            f"{run_config} contains games outside --benchmarks {benchmarks}: {', '.join(mismatches)}")
 
 
 @dataclass
@@ -93,7 +118,7 @@ def stop_process(process: subprocess.Popen, *, startup_group: bool = False) -> i
     return process.wait()
 
 
-def run_experiment(root: Path, run_config: Path) -> int:
+def run_experiment(root: Path, run_config: Path, *, benchmarks: str | None = None) -> int:
     for name in ("run", "run_tb"):
         if os.path.lexists(root / name):
             raise RuntimeError(f"Run folder already exists: {root / name}")
@@ -101,6 +126,8 @@ def run_experiment(root: Path, run_config: Path) -> int:
         config = yaml.safe_load(source)
     if not isinstance(config, dict) or config.get("environment") != "terminal_bench":
         raise RuntimeError(f"{run_config} must select environment: terminal_bench")
+    if benchmarks is not None:
+        validate_benchmark_games(config, run_config, benchmarks)
 
     host = root / "src/server/environments/terminal_bench/host_runtime"
     setup = runtime = controller = None
@@ -115,8 +142,11 @@ def run_experiment(root: Path, run_config: Path) -> int:
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
-        print("[tb] Setting up the host runtime.", flush=True)
-        setup = start_process(root, ["bash", str(host / "setup.sh")])
+        print(f"[tb] Setting up the host runtime (benchmarks: {benchmarks or '2.1'}).", flush=True)
+        setup_command = ["bash", str(host / "setup.sh")]
+        if benchmarks is not None:
+            setup_command.extend(["--benchmarks", benchmarks])
+        setup = start_process(root, setup_command)
         setup_code = wait_process(setup, shutdown)
         if setup_code != 0:
             raise RuntimeError(f"Host runtime setup failed (exit code {setup_code})")
@@ -164,9 +194,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-config", type=Path, default=ROOT / "run_config.yaml",
                         help="run config to pass to run_controller.py; default: run_config.yaml in the project")
+    parser.add_argument("--benchmarks", type=parse_benchmarks, metavar="VERSIONS",
+                        help="datasets to prepare: 2.1, 3.0, 4.0, science-0.1, comma-separated, or all; "
+                             "default setup: 2.1. Explicit selections must include all configured games")
     args = parser.parse_args(argv)
     try:
-        return run_experiment(ROOT, args.run_config.resolve())
+        return run_experiment(ROOT, args.run_config.resolve(), benchmarks=args.benchmarks)
     except KeyboardInterrupt:
         return 130
     except (OSError, RuntimeError, yaml.YAMLError) as exc:

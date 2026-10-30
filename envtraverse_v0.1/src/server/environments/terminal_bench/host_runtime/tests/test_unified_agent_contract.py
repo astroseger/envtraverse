@@ -36,6 +36,7 @@ from dataclasses import fields
 assert [f.name for f in fields(bridge.StartResult)] == ["environment_description", "observation"]
 instance = bridge.EnvironmentManager({"socket_path": "/nonexistent/test.sock"})
 assert callable(instance.move)
+assert instance.client.timeout is None
 instance.stop()
 assert "harbor" not in sys.modules
 print("New single-game API + retained loader/serializer: OK; no Harbor imported")

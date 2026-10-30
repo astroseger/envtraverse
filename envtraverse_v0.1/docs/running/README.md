@@ -186,6 +186,22 @@ waits for grading and cleanup. The supplied
 [run_config_terminal_bench_2.1.yaml](../../run_config_terminal_bench_2.1.yaml)
 contains the full supplied task list.
 
+To run all 70 Science 0.1 tasks from [run_config_terminal_bench_science_0.1.yaml](../../run_config_terminal_bench_science_0.1.yaml):
+
+```bash
+python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
+```
+
+The Science configuration uses `agent_v1_07_wstop2` with an HTTP read timeout of
+36300 seconds and a supervisor inactivity timeout of 39600 seconds. All four
+bundled agents accept these top-level settings; their defaults are 3900 and 7200
+seconds. See the [agent settings](../../src/agents/README.md) for details.
+
+`--benchmarks` accepts `2.1`, `3.0`, `4.0`, `science-0.1`, a comma-separated
+combination, or `all`. It selects datasets for setup and checks that the configured
+games belong to that selection. The `games:` list determines which tasks run.
+Without the option, setup continues to select TB2.1.
+
 Keep the `server_mounts` socket entry in these configurations. Archive both
 `run/` and `run_tb/` before another experiment. See the
 [Terminal-Bench running guide](../../README_tb.md) for setup details, task
@@ -207,7 +223,7 @@ saved Codex state before each task while retaining authentication.
 
 The optional `codex_account_fast_service_tier: true` enables the fast service
 tier for subscription runs. Its default is `false`; the supplied Terminal-Bench
-configurations enable it.
+2.1 configurations enable it, while the Science configuration leaves it disabled.
 
 ## Run with an API key
 

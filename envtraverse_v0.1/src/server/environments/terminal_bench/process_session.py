@@ -1,7 +1,7 @@
 """Supervisor-side session proxy: one fresh Python process, one private socketpair.
 
 No Harbor code runs in the shared supervisor. Close bypasses the normal operation
-lock, so a blocked start/action cannot prevent bounded cancellation of its worker.
+lock, so failed preparation can be cancelled while prepared tasks drain grading.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class ProcessSession:
                  output_dir: Path, settings: TerminalSettings, workspace_dir: Path,
                  benchmark: str, task_name: str,
                  environment_type: str = "docker", environment_kwargs: dict[str, Any] | None = None,
-                 cleanup_grace_seconds: float = 120, finish_grace_seconds: float = 7200,
+                 cleanup_grace_seconds: float = 120,
                  worker_factory: str = "terminal_bench.harbor_runner:HarborSession",
                  build_timeout_seconds: float = 3600):
         self.session_id, self.task_id = session_id, task_id
@@ -44,7 +44,7 @@ class ProcessSession:
             # Operator/test injection only. This value is never accepted from network requests.
             "worker_factory": worker_factory,
         }
-        self.cleanup_grace_seconds, self.finish_grace_seconds = cleanup_grace_seconds, finish_grace_seconds
+        self.cleanup_grace_seconds = cleanup_grace_seconds
         self.process: asyncio.subprocess.Process | None = None
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
@@ -194,22 +194,20 @@ class ProcessSession:
                 and lifecycle.get("preserve_finalization") is True)
 
     async def _wait_for_close(self) -> None:
-        # A timeout can end solving while close is being dispatched. Recheck the
-        # worker's private atomic lifecycle record instead of choosing a fixed
-        # grace solely from whether the caller sent finish(). Once extended, the
-        # grace is not shortened, and polling never restarts the absolute deadline.
+        # Preparation can finish while close is being dispatched. Keep checking
+        # its lifecycle until grading must be preserved, then wait without an
+        # extra supervisor deadline. Harbor owns the task's verifier timeout.
         loop = asyncio.get_running_loop()
-        started = loop.time()
-        preserve = self._preserve_finalization()
+        deadline = loop.time() + self.cleanup_grace_seconds
         closing = asyncio.create_task(self._rpc("close", reason=self.close_reason))
         try:
             while not closing.done():
-                preserve = preserve or self._preserve_finalization()
-                grace = (max(self.cleanup_grace_seconds, self.finish_grace_seconds)
-                         if preserve else self.cleanup_grace_seconds)
-                remaining = started + grace - loop.time()
+                if self._preserve_finalization():
+                    await closing
+                    return
+                remaining = deadline - loop.time()
                 if remaining <= 0:
-                    raise asyncio.TimeoutError("Worker exceeded its cleanup/verification grace")
+                    raise asyncio.TimeoutError("Worker exceeded its preparation cleanup grace")
                 await asyncio.wait((closing,), timeout=min(0.05, remaining))
             await closing
         finally:

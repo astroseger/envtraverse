@@ -30,7 +30,7 @@ class RuntimeService:
                  settings: TerminalSettings = TerminalSettings(),
                  environment_type: str = "docker", environment_kwargs: dict[str, Any] | None = None,
                  socket_mode: int = 0o600, session_factory: Callable | None = None,
-                 cleanup_grace_seconds: float = 120, finish_grace_seconds: float = 7200,
+                 cleanup_grace_seconds: float = 120,
                  build_timeout_seconds: float = 3600):
         # Preserve a short relative pathname: this checkout's absolute socket
         # path can exceed sockaddr_un.sun_path even though the directory is valid.
@@ -44,11 +44,10 @@ class RuntimeService:
         self.environment_kwargs = environment_kwargs or {}
         if socket_mode not in {0o600, 0o660}:
             raise ValueError("Socket mode must be 0600 or 0660")
-        for value in (cleanup_grace_seconds, finish_grace_seconds, build_timeout_seconds):
+        for value in (cleanup_grace_seconds, build_timeout_seconds):
             if not math.isfinite(value) or value <= 0:
                 raise ValueError("Cleanup grace values must be finite and positive")
         self.cleanup_grace_seconds = cleanup_grace_seconds
-        self.finish_grace_seconds = finish_grace_seconds
         self.build_timeout_seconds = build_timeout_seconds
         self.socket_mode = socket_mode
         if session_factory is None:
@@ -127,7 +126,6 @@ class RuntimeService:
                     benchmark=spec.benchmark, task_name=spec.task_name,
                     environment_type=self.environment_type, environment_kwargs=self.environment_kwargs,
                     cleanup_grace_seconds=self.cleanup_grace_seconds,
-                    finish_grace_seconds=self.finish_grace_seconds,
                     build_timeout_seconds=self.build_timeout_seconds,
                 )
                 # Registered before awaiting setup: independent close can cancel it.
@@ -266,7 +264,7 @@ async def _serve(args: argparse.Namespace) -> None:
         settings=settings,
         environment_type=args.environment_type, environment_kwargs=backend_kwargs,
         socket_mode=int(args.socket_mode, 8),
-        cleanup_grace_seconds=args.cleanup_grace_seconds, finish_grace_seconds=args.finish_grace_seconds,
+        cleanup_grace_seconds=args.cleanup_grace_seconds,
         build_timeout_seconds=args.build_timeout_seconds,
     )
     stop = asyncio.Event()
@@ -289,7 +287,6 @@ def main() -> None:
     add_catalog_arguments(parser)
     parser.add_argument("--output", type=Path, default=Path("tb-results"))
     parser.add_argument("--cleanup-grace-seconds", type=float, default=120)
-    parser.add_argument("--finish-grace-seconds", type=float, default=7200)
     parser.add_argument("--environment-type", default="docker", help="Harbor backend, default docker")
     parser.add_argument("--environment-kwargs", default="{}", help="Operator-supplied Harbor backend kwargs as JSON")
     parser.add_argument("--columns", type=int, default=160)

@@ -8,6 +8,7 @@ PYTHON="${PYTHON:-$TB_VENV/bin/python}"
 TB21_ROOT="${TB21_ROOT:-$TB_HOST_DIR/.tb-data/terminal-bench-2-1}"
 TB3_ROOT="${TB3_ROOT:-$TB_HOST_DIR/.tb-data/terminal-bench-3-0}"
 TB4_ROOT="${TB4_ROOT:-$TB_HOST_DIR/.tb-data/terminal-bench-4-0}"
+TBSCIENCE_ROOT="${TBSCIENCE_ROOT:-$TB_HOST_DIR/.tb-data/terminal-bench-science-0-1}"
 export PYTHONPATH="$TB_PACKAGE_DIR/..:$TB_HOST_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -24,4 +25,5 @@ catalog_arguments() {
     [[ ! -d "$TB21_ROOT/tasks" ]] || CATALOG_ARGUMENTS+=(--tb21-root "$TB21_ROOT")
     [[ ! -d "$TB3_ROOT/tasks" ]] || CATALOG_ARGUMENTS+=(--tb3-root "$TB3_ROOT")
     [[ ! -d "$TB4_ROOT/tasks" ]] || CATALOG_ARGUMENTS+=(--tb4-root "$TB4_ROOT")
+    [[ ! -d "$TBSCIENCE_ROOT/tasks" ]] || CATALOG_ARGUMENTS+=(--tbscience-root "$TBSCIENCE_ROOT")
 }
