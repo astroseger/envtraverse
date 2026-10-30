@@ -11,8 +11,8 @@ from pathlib import Path
 import run_funs as rf
 
 
-CHECK_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNTS_DIR / "check_account.sh"
-CLEAN_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNTS_DIR / "clean_account.sh"
+CHECK_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNT_SCRIPTS_DIR / "check_account.sh"
+CLEAN_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNT_SCRIPTS_DIR / "clean_account.sh"
 
 
 @dataclass(frozen=True)
@@ -25,12 +25,13 @@ class RunConfig:
     codex_account_fast_service_tier: bool = False
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
+    paths: rf.RunPaths = rf.RunPaths()
 
 
-def parse_run_config(path: Path) -> RunConfig:
+def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
     loaded_config = rf.load_run_config(path)
     runner = rf.parse_runner_config(loaded_config, path)
-    environment = rf.parse_environment_config(loaded_config, path)
+    environment = rf.parse_environment_config(loaded_config, path, paths=paths)
     accounts = rf.parse_string_list(loaded_config, "codex_accounts", path)
     games = rf.parse_string_list(loaded_config, "games", path)
     agent = rf.parse_agent_name(loaded_config, path)
@@ -41,7 +42,7 @@ def parse_run_config(path: Path) -> RunConfig:
     rf.validate_unique_games(games)
 
     for account in accounts:
-        account_dir = rf.CODEX_ACCOUNTS_DIR / account
+        account_dir = paths.accounts_dir / account
         if not account_dir.is_dir():
             raise RuntimeError(f"codex account folder does not exist: {account_dir}")
 
@@ -54,16 +55,19 @@ def parse_run_config(path: Path) -> RunConfig:
         codex_account_fast_service_tier=fast_service_tier,
         runner=runner,
         agent_docker_build_args=agent_docker_build_args,
+        paths=paths,
     )
 
 
-def clean_codex_account(account: str, *, fast_service_tier: bool = False) -> None:
+def clean_codex_account(
+    account: str, *, fast_service_tier: bool = False, paths: rf.RunPaths = rf.RunPaths(),
+) -> None:
     if not CLEAN_CODEX_ACCOUNT_SCRIPT.is_file():
         raise RuntimeError(f"codex account clean script does not exist: {CLEAN_CODEX_ACCOUNT_SCRIPT}")
     if not os.access(CLEAN_CODEX_ACCOUNT_SCRIPT, os.X_OK):
         raise RuntimeError(f"codex account clean script is not executable: {CLEAN_CODEX_ACCOUNT_SCRIPT}")
 
-    account_path = rf.CODEX_ACCOUNTS_DIR / account
+    account_path = paths.accounts_dir / account
     rf.LOGGER.info("cleaning codex account account=%s path=%s", account, account_path)
     result = subprocess.run(
         [str(CLEAN_CODEX_ACCOUNT_SCRIPT), str(account_path)],
@@ -88,7 +92,7 @@ def verify_codex_accounts(config: RunConfig) -> None:
         raise RuntimeError(f"codex account check script is not executable: {CHECK_CODEX_ACCOUNT_SCRIPT}")
 
     for account in config.accounts:
-        account_path = rf.CODEX_ACCOUNTS_DIR / account
+        account_path = config.paths.accounts_dir / account
         rf.LOGGER.info("checking codex account account=%s path=%s", account, account_path)
         result = subprocess.run(
             [str(CHECK_CODEX_ACCOUNT_SCRIPT), str(account_path)],
@@ -113,8 +117,9 @@ def docker_agent_command(
     *,
     agent_image: str,
     runner: rf.RunnerConfig = rf.RunnerConfig(),
+    paths: rf.RunPaths = rf.RunPaths(),
 ) -> list[str]:
-    account_dir = rf.CODEX_ACCOUNTS_DIR / account
+    account_dir = paths.accounts_dir / account
     return [
         "docker",
         "run",
@@ -147,8 +152,9 @@ def start_agent(
     agent_image: str,
     fast_service_tier: bool = False,
     runner: rf.RunnerConfig = rf.RunnerConfig(),
+    paths: rf.RunPaths = rf.RunPaths(),
 ) -> rf.RunningContainer:
-    clean_codex_account(account, fast_service_tier=fast_service_tier)
+    clean_codex_account(account, fast_service_tier=fast_service_tier, paths=paths)
     command = docker_agent_command(
         account,
         container_name,
@@ -158,6 +164,7 @@ def start_agent(
         preparation,
         agent_image=agent_image,
         runner=runner,
+        paths=paths,
     )
     rf.log_info(
         "starting game %s as alias %s on codex account %s; container: %s",
@@ -194,7 +201,7 @@ def run_scheduler(
     def launch_agent(account: str, game_alias: str, real_game: str) -> rf.RunningContainer:
         preparation = rf.prepare_agent_run(
             config.agent,
-            rf.RUN_DIR / game_alias,
+            config.paths.run_dir / game_alias,
             f"http://{container_names.servers[real_game]}:{rf.SERVER_PORT}",
             game_alias,
             config.parsed_run_config,
@@ -212,6 +219,7 @@ def run_scheduler(
             agent_image=images.agent,
             fast_service_tier=config.codex_account_fast_service_tier,
             runner=config.runner,
+            paths=config.paths,
         )
 
     return rf.run_scheduler(
@@ -221,17 +229,13 @@ def run_scheduler(
         images=images,
         slots=config.accounts,
         launch_agent=launch_agent,
+        paths=config.paths,
     )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run games across codex accounts.")
-    parser.add_argument(
-        "--run-config",
-        type=Path,
-        default=rf.RUN_CONFIG,
-        help=f"run config to read; default: {rf.RUN_CONFIG}",
-    )
+    rf.add_run_path_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -239,17 +243,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     run_created = False
     try:
-        run_config = args.run_config.resolve()
-        config = parse_run_config(run_config)
+        paths = rf.RunPaths(args.run_root)
+        run_config = paths.resolve_config(args.run_config)
+        config = parse_run_config(run_config, paths=paths)
         rf.verify_environment_variables(config.environment)
         game_id_mapping = rf.build_game_id_mapping(config.games)
         container_names = rf.build_container_names(config.games)
         rf.verify_container_names_available(container_names)
         rf.verify_network_names_available(container_names)
-        rf.prepare_run_root()
+        rf.prepare_run_root(paths)
         run_created = True
-        rf.setup_runner_logging()
-        rf.LOGGER.info("runner log started: %s", rf.RUNNER_LOG_PATH)
+        rf.setup_runner_logging(paths)
+        rf.LOGGER.info("runner log started: %s", paths.runner_log)
+        rf.LOGGER.info("source root=%s run root=%s", rf.ROOT, paths.root)
         rf.LOGGER.info(
             "run config=%s accounts=%s games=%s environment=%s environment_parameters=%s environment_variables=%s",
             run_config,
@@ -273,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         with rf.built_run_images(
             config.environment.name, config.agent,
             agent_docker_build_args=config.agent_docker_build_args,
+            paths=paths,
         ) as images:
             verify_codex_accounts(config)
             exit_code = run_scheduler(config, container_names, game_id_mapping, images=images)
@@ -287,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         if run_created:
-            rf.make_run_writable()
+            rf.make_run_writable(paths)
 
 
 if __name__ == "__main__":

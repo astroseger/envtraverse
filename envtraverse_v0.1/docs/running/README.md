@@ -51,10 +51,50 @@ are required by the bundled agents. Start the run:
 python3 run_controller.py --run-config run_config.yaml
 ```
 
-Results go to `run/` inside the framework directory. Rename or archive an existing
-`run/` before starting another experiment. Passing a different configuration
-path does not change this output location. For long experiments, use `tmux` or
-`screen`.
+Results go to `<run-root>/run/`. The run root defaults to the framework directory.
+Rename or archive an existing `run/` in the selected root before another
+experiment. Passing a different configuration path alone does not change this
+output location. For long experiments, use `tmux` or `screen`.
+
+## Choose a run root
+
+All three controllers accept `--run-root`. Put the experiment's configuration and
+account directories there, then run the controller from the source checkout:
+
+```bash
+python3 run_controller.py --run-root /path/to/experiment
+```
+
+| Path under the run root | Purpose |
+| --- | --- |
+| `run_config.yaml` | Default configuration when `--run-config` is omitted |
+| `codex_accounts/<account>/` | Account data for subscription runs |
+| `run/` | Workspaces, observations, logs, and `docker_images.json` |
+| `run_tb/` | Terminal-Bench runtime socket, logs, and private results |
+
+Without `--run-root`, these paths remain beside the controller scripts. Relative
+`--run-root` and explicit `--run-config` arguments resolve against the caller's
+working directory. Relative `server_mounts[].source` paths inside the YAML resolve
+against the run root, even when the configuration file is elsewhere. Absolute
+mount sources retain their specified locations.
+
+Agent and environment source, Docker build files, account helper scripts, and
+Terminal-Bench datasets and virtual environment stay in the source checkout.
+For example, prepare an external account with:
+
+```bash
+./codex_accounts/prepare_account.sh /path/to/experiment/codex_accounts/codex01
+```
+
+For Terminal-Bench, the wrapper passes the same root to the runtime and controller:
+
+```bash
+python3 run_controller_tb.py --run-root /path/to/experiment --benchmarks 4.0
+```
+
+With manual runtime startup, pass the same `--run-root` to `host_runtime/run.sh`
+and the selected controller. Existing outputs are checked only in the selected
+run root.
 
 ## Choose an agent
 
@@ -226,7 +266,7 @@ games belong to that selection. The `games:` list determines which tasks run.
 Without the option, setup continues to select TB2.1.
 
 Keep the `server_mounts` socket entry in these configurations. Archive both
-`run/` and `run_tb/` before another experiment. See the
+`run/` and `run_tb/` in the selected run root before another experiment. See the
 [Terminal-Bench running guide](../../README_tb.md) for setup details, task
 discovery, and API-key runs.
 
@@ -274,7 +314,8 @@ before starting this runner.
 
 ## Find and keep the results
 
-With the bundled agents, each task receives a generated alias and fresh files:
+With the bundled agents, each task receives a generated alias and fresh files.
+All paths below are relative to the selected run root:
 
 | Path | Contents |
 | --- | --- |

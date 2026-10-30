@@ -85,7 +85,7 @@ An agent can create a solution locally and send it into the task sandbox:
 
 `path_local` is relative to the agent workspace, independent of its current
 directory. The runtime currently expects that workspace on the host at
-`run/<alias>/run/agent_run/`, mounted by the bundled agents as
+`<run-root>/run/<alias>/run/agent_run/`, mounted by the bundled agents as
 `/home/user/run/agent_run/`. New agents must expose this location or adapt the
 integration. The agent and runtime must share the host filesystem.
 
@@ -114,9 +114,9 @@ has been removed; `--cleanup-grace-seconds` only bounds cleanup of preparation
 that never produced a usable task. A stuck operation in a prepared worker can
 therefore keep runtime shutdown waiting until it is manually terminated.
 
-Private outputs live in `run_tb/results/<alias>/`, including `result.json`,
+Private outputs live in `<run-root>/run_tb/results/<alias>/`, including `result.json`,
 runtime logs, and the Harbor trial. The same alias identifies the agent and
-server files under `run/<alias>/`. See the
+server files under `<run-root>/run/<alias>/`. See the
 [analysis guide](../../../../analysis_scripts/README.md#terminal-bench) for reports.
 
 ## Configuration and implementation
@@ -125,6 +125,12 @@ Select `environment: terminal_bench` and use the versioned task IDs listed by th
 host runtime. The supplied configurations mount `run_tb/socket/` into the server
 at `/run/terminal-bench/`. Only the socket directory is mounted there; task
 checkouts and private results remain on the host.
+
+All controllers and `host_runtime/run.sh` accept `--run-root`, defaulting to the
+source checkout. Relative mount sources, including `run_tb/socket/`, resolve
+under that root. `run_controller_tb.py` forwards it to both the runtime and the
+controller; for manual startup, supply the same root to each. Datasets and the
+Harbor virtual environment retain their existing source-checkout locations.
 
 The adapter accepts `socket_path` and `request_timeout_seconds` in
 `environment_parameters`. Defaults are `/run/terminal-bench/runtime.sock` and

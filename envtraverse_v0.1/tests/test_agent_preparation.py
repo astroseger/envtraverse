@@ -83,7 +83,7 @@ class AgentPreparationTest(unittest.TestCase):
     def test_both_controllers_require_an_existing_agent_package(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "accounts/codex01").mkdir(parents=True)
+            (root / "codex_accounts/codex01").mkdir(parents=True)
             config_path = root / "run.yaml"
             for settings in ({}, *({"agent": name} for name in
                                   (None, "", 42, [], "missing", "../agent_v1", "agent_v1.prepare_run", "9bad"))):
@@ -92,9 +92,8 @@ class AgentPreparationTest(unittest.TestCase):
                 }))
                 for controller in CONTROLLERS:
                     with self.subTest(controller=controller.__name__, settings=settings), \
-                            patch.object(rf, "CODEX_ACCOUNTS_DIR", root / "accounts"), \
                             self.assertRaisesRegex(RuntimeError, "agent"):
-                        controller.parse_run_config(config_path)
+                        controller.parse_run_config(config_path, paths=rf.RunPaths(root))
 
     def test_both_controllers_use_selected_hooks_without_assuming_an_agent_layout(self) -> None:
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -115,11 +114,9 @@ def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_file
 ''')
             stack.enter_context(patch.object(rf, "AGENTS_DIR", package.parent))
             stack.enter_context(patch.object(src.agents, "__path__", [str(package.parent)]))
-            stack.enter_context(patch.object(rf, "RUN_DIR", root / "run"))
             stack.enter_context(patch.object(rf, "SERVER_PORT", 19234))
-            accounts = root / "accounts"
+            accounts = root / "codex_accounts"
             (accounts / "codex01").mkdir(parents=True)
-            stack.enter_context(patch.object(rf, "CODEX_ACCOUNTS_DIR", accounts))
             stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-only"}))
             stack.enter_context(patch.object(accounts_controller, "clean_codex_account"))
             stack.enter_context(patch.object(rf, "log_info"))
@@ -135,14 +132,14 @@ def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_file
             images = rf.RunImages.create()
             names = rf.build_container_names(settings["games"])
 
-            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images):
+            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images, paths):
                 return launch_agent(slots[0], "public-alias", "private-game").process.poll()
 
             for controller in CONTROLLERS:
                 with self.subTest(controller=controller.__name__), \
                         patch.object(rf, "run_scheduler", side_effect=schedule), \
                         patch.object(controller.subprocess, "Popen", return_value=Mock(poll=Mock(return_value=0))) as popen:
-                    config = controller.parse_run_config(config_path)
+                    config = controller.parse_run_config(config_path, paths=rf.RunPaths(root))
                     self.assertEqual(config.parsed_run_config, settings)
                     self.assertEqual(controller.run_scheduler(config, names, {"public-alias": "private-game"}, images=images), 0)
                     command = popen.call_args.args[0]

@@ -9,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,17 +25,19 @@ class DockerImageLifecycleTest(unittest.TestCase):
     def test_overlapping_builds_and_cleanup_preserve_the_other_runs_images(self) -> None:
         # No account directories, credentials, or authenticated Codex calls are used.
         with tempfile.TemporaryDirectory(prefix="unified-image-test-") as directory:
-            first_dir, second_dir = Path(directory) / "first", Path(directory) / "second"
-            first_dir.mkdir()
-            second_dir.mkdir()
-            with patch.object(rf, "RUN_DIR", first_dir), rf.built_run_images("example", "agent_v1") as first:
+            first_paths = rf.RunPaths(Path(directory) / "first")
+            second_paths = rf.RunPaths(Path(directory) / "second")
+            first_dir, second_dir = first_paths.run_dir, second_paths.run_dir
+            first_dir.mkdir(parents=True)
+            second_dir.mkdir(parents=True)
+            with rf.built_run_images("example", "agent_v1", paths=first_paths) as first:
                 container = "unified-image-test-" + uuid4().hex
                 self.docker(
                     "run", "--rm", "--pull=never", "--network", "none", "--detach",
                     "--name", container, "--entrypoint", "/bin/sleep", first.agent, "600",
                 )
                 try:
-                    with patch.object(rf, "RUN_DIR", second_dir), rf.built_run_images("example", "agent_v1") as second:
+                    with rf.built_run_images("example", "agent_v1", paths=second_paths) as second:
                         self.assertTrue(set(asdict(first).values()).isdisjoint(asdict(second).values()))
                         for image in (*asdict(first).values(), *asdict(second).values()):
                             self.assertTrue(rf.image_exists(image), image)

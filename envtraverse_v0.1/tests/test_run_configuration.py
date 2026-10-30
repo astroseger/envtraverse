@@ -26,15 +26,52 @@ class RunConfigurationTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.config_path = self.directory / "config.yaml"
-        accounts = self.directory / "accounts"
+        self.paths = rf.RunPaths(self.directory)
+        accounts = self.paths.accounts_dir
         (accounts / "codex01").mkdir(parents=True)
-        self.enterContext(patch.object(rf, "CODEX_ACCOUNTS_DIR", accounts))
 
     def write_config(self, **settings):
         config = {"agent": "agent_v1", "environment": "example", "games": ["counter"], "codex_accounts": ["codex01"]}
         config.update(settings)
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
         return config
+
+    def test_default_run_paths_use_the_source_directory(self) -> None:
+        for controller in CONTROLLERS:
+            args = controller.parse_args([])
+            paths = rf.RunPaths(args.run_root)
+            self.assertEqual(paths.root, ROOT)
+            self.assertEqual(paths.resolve_config(args.run_config), ROOT / "run_config.yaml")
+            self.assertEqual(paths.accounts_dir, ROOT / "codex_accounts")
+            self.assertEqual(paths.run_dir, ROOT / "run")
+            self.assertEqual(paths.run_tb_dir, ROOT / "run_tb")
+            self.assertEqual(paths.runner_log, ROOT / "run/runner.log")
+
+    def test_relative_root_and_explicit_config_use_caller_cwd_independently(self) -> None:
+        with patch("os.getcwd", return_value=str(self.directory)):
+            for controller in CONTROLLERS:
+                args = controller.parse_args(["--run-root", "experiment with spaces", "--run-config", "chosen.yaml"])
+                paths = rf.RunPaths(args.run_root)
+                self.assertEqual(paths.root, self.directory / "experiment with spaces")
+                self.assertEqual(paths.resolve_config(None), paths.root / "run_config.yaml")
+                self.assertEqual(paths.resolve_config(args.run_config), self.directory / "chosen.yaml")
+                self.assertEqual(paths.resolve_config(self.config_path), self.config_path)
+
+    def test_external_root_uses_its_accounts_but_source_agent_build_settings(self) -> None:
+        (self.paths.accounts_dir / "external_only").mkdir()
+        fake_agent = self.directory / "src/agents/agent_v1_07_wstop2"
+        fake_agent.mkdir(parents=True)
+        (fake_agent / "Dockerfile").write_text("FROM scratch\nARG WRONG_VERSION\n")
+        self.write_config(agent="agent_v1_07_wstop2", codex_accounts=["external_only"],
+                          agent_docker_build_args={"CODEX_VERSION": "0.166.0"})
+        for controller in CONTROLLERS:
+            config = controller.parse_run_config(self.config_path, paths=self.paths)
+            self.assertEqual(config.paths, self.paths)
+            self.assertEqual(config.agent_docker_build_args, {"CODEX_VERSION": "0.166.0"})
+        self.assertEqual(rf.agent_directory("agent_v1_07_wstop2"), ROOT / "src/agents/agent_v1_07_wstop2")
+        self.assertEqual(accounts_controller.CHECK_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/check_account.sh")
+        self.assertEqual(accounts_controller.CLEAN_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/clean_account.sh")
+        self.assertEqual(api_controller.CHECK_CODEX_API_KEY_SCRIPT, ROOT / "codex_accounts/check_codex_with_api_key.sh")
 
     def test_both_controllers_parse_each_environment_without_loading_its_dependencies(self) -> None:
         with patch.dict(sys.modules, {"arc_agi": None, "arcengine": None}):
@@ -46,13 +83,13 @@ class RunConfigurationTest(unittest.TestCase):
                 self.write_config(environment=name, games=[game], environment_parameters=parameters)
                 for controller in CONTROLLERS:
                     with self.subTest(controller=controller.__name__, environment=name):
-                        config = controller.parse_run_config(self.config_path)
+                        config = controller.parse_run_config(self.config_path, paths=self.paths)
                         self.assertEqual(config.environment, rf.EnvironmentConfig(name, parameters, []))
                         self.assertEqual(config.games, [game])
 
     def test_supplied_config_runs_one_noncompetition_arc3_game(self) -> None:
         for controller in CONTROLLERS:
-            config = controller.parse_run_config(ROOT / "run_config_arc3.yaml")
+            config = controller.parse_run_config(ROOT / "run_config_arc3.yaml", paths=self.paths)
             self.assertEqual(config.games, ["ls20"])
             self.assertEqual(
                 config.environment,
@@ -65,7 +102,7 @@ class RunConfigurationTest(unittest.TestCase):
         self.write_config()
         with patch.dict(os.environ, {}, clear=True):
             for controller in CONTROLLERS:
-                config = controller.parse_run_config(self.config_path)
+                config = controller.parse_run_config(self.config_path, paths=self.paths)
                 self.assertEqual(config.environment, rf.EnvironmentConfig("example", {}, []))
                 rf.verify_environment_variables(config.environment)
 
@@ -75,7 +112,7 @@ class RunConfigurationTest(unittest.TestCase):
             self.write_config(**settings)
             for controller in CONTROLLERS:
                 with self.subTest(settings=settings, controller=controller.__name__):
-                    self.assertEqual(controller.parse_run_config(self.config_path).runner, expected)
+                    self.assertEqual(controller.parse_run_config(self.config_path, paths=self.paths).runner, expected)
 
     def test_agent_docker_build_args_default_to_empty_for_all_agents(self) -> None:
         for agent in ("agent_v1", "agent_v1_01_wstop", "agent_v1_07_wstop2", "test_arc3_agent_v1_02_wstop_wreset"):
@@ -83,14 +120,14 @@ class RunConfigurationTest(unittest.TestCase):
                 self.write_config(agent=agent, **settings)
                 for controller in CONTROLLERS:
                     with self.subTest(agent=agent, settings=settings, controller=controller.__name__):
-                        self.assertEqual(controller.parse_run_config(self.config_path).agent_docker_build_args, {})
+                        self.assertEqual(controller.parse_run_config(self.config_path, paths=self.paths).agent_docker_build_args, {})
 
     def test_both_controllers_accept_codex_version_for_opted_in_agent(self) -> None:
         arguments = {"CODEX_VERSION": "0.153.4"}
         self.write_config(agent="agent_v1_07_wstop2", agent_docker_build_args=arguments)
         for controller in CONTROLLERS:
             with self.subTest(controller=controller.__name__):
-                config = controller.parse_run_config(self.config_path)
+                config = controller.parse_run_config(self.config_path, paths=self.paths)
                 self.assertEqual(config.agent_docker_build_args, arguments)
                 self.assertEqual(config.parsed_run_config["agent_docker_build_args"], arguments)
 
@@ -106,7 +143,7 @@ class RunConfigurationTest(unittest.TestCase):
         self.write_config(agent="custom_agent", agent_docker_build_args=arguments)
         with patch.object(rf, "AGENTS_DIR", agent.parent):
             for controller in CONTROLLERS:
-                self.assertEqual(controller.parse_run_config(self.config_path).agent_docker_build_args, arguments)
+                self.assertEqual(controller.parse_run_config(self.config_path, paths=self.paths).agent_docker_build_args, arguments)
 
     def test_agent_docker_build_args_reject_invalid_mappings_names_and_values(self) -> None:
         invalid = [None, False, [], "CODEX_VERSION=0.153.4", 2]
@@ -117,7 +154,7 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 with self.subTest(arguments=arguments, controller=controller.__name__):
                     with self.assertRaisesRegex(RuntimeError, "agent_docker_build_args"):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_agent_docker_build_args_reject_reserved_and_undeclared_names(self) -> None:
         for name in ("USER_ID", "GROUP_ID", "CODEX_VERISON", "codex_version"):
@@ -126,7 +163,7 @@ class RunConfigurationTest(unittest.TestCase):
                 with self.subTest(name=name, controller=controller.__name__):
                     expected = "managed by the controller" if name in {"USER_ID", "GROUP_ID"} else "does not declare ARG"
                     with self.assertRaisesRegex(RuntimeError, expected):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_other_agents_do_not_silently_accept_codex_version_override(self) -> None:
         for agent in ("agent_v1", "agent_v1_01_wstop", "test_arc3_agent_v1_02_wstop_wreset"):
@@ -134,11 +171,11 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 with self.subTest(agent=agent, controller=controller.__name__):
                     with self.assertRaisesRegex(RuntimeError, "does not declare ARG CODEX_VERSION"):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_supplied_runner_example_uses_defaults(self) -> None:
         for controller in CONTROLLERS:
-            config = controller.parse_run_config(ROOT / "run_config.yaml")
+            config = controller.parse_run_config(ROOT / "run_config.yaml", paths=self.paths)
             self.assertNotIn("runner", config.parsed_run_config)
             self.assertNotIn("recovery_delay_seconds", config.parsed_run_config)
             self.assertNotIn("max_recovery_attempts", config.parsed_run_config)
@@ -157,7 +194,7 @@ class RunConfigurationTest(unittest.TestCase):
             self.write_config(runner=runner)
             for controller in CONTROLLERS:
                 with self.subTest(runner=runner, controller=controller.__name__):
-                    config = controller.parse_run_config(self.config_path)
+                    config = controller.parse_run_config(self.config_path, paths=self.paths)
                     self.assertEqual(config.runner, expected)
                     self.assertEqual(config.parsed_run_config["runner"], runner)
 
@@ -167,7 +204,7 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 with self.subTest(runner=runner, controller=controller.__name__):
                     with self.assertRaisesRegex(RuntimeError, "runner"):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_runner_rejects_invalid_memory_values(self) -> None:
         for key in ("container_memory_gib", "process_data_soft_limit_gib", "process_data_hard_limit_gib"):
@@ -177,7 +214,7 @@ class RunConfigurationTest(unittest.TestCase):
                 for controller in CONTROLLERS:
                     with self.subTest(key=key, value=value, controller=controller.__name__):
                         with self.assertRaisesRegex(RuntimeError, f"runner.{key}"):
-                            controller.parse_run_config(self.config_path)
+                            controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_runner_rejects_soft_limit_above_hard_limit_including_defaults(self) -> None:
         for runner in ({"process_data_soft_limit_gib": 3}, {"process_data_hard_limit_gib": 1},
@@ -186,15 +223,15 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 with self.subTest(runner=runner, controller=controller.__name__):
                     with self.assertRaisesRegex(RuntimeError, "soft_limit_gib.*less than or equal to.*hard_limit_gib"):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_account_fast_service_tier_defaults_to_false_and_accepts_booleans(self) -> None:
         self.write_config()
-        self.assertIs(accounts_controller.parse_run_config(self.config_path).codex_account_fast_service_tier, False)
+        self.assertIs(accounts_controller.parse_run_config(self.config_path, paths=self.paths).codex_account_fast_service_tier, False)
         for enabled in (True, False):
             with self.subTest(enabled=enabled):
                 self.write_config(codex_account_fast_service_tier=enabled)
-                config = accounts_controller.parse_run_config(self.config_path)
+                config = accounts_controller.parse_run_config(self.config_path, paths=self.paths)
                 self.assertIs(config.codex_account_fast_service_tier, enabled)
 
     def test_account_fast_service_tier_rejects_non_booleans(self) -> None:
@@ -202,7 +239,7 @@ class RunConfigurationTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.write_config(codex_account_fast_service_tier=value)
                 with self.assertRaisesRegex(RuntimeError, "codex_account_fast_service_tier.*must be a boolean"):
-                    accounts_controller.parse_run_config(self.config_path)
+                    accounts_controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_nested_parameters_are_preserved_without_environment_specific_interpretation(self) -> None:
         parameters = {
@@ -250,13 +287,13 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 with self.subTest(key=key, controller=controller.__name__):
                     with self.assertRaisesRegex(RuntimeError, "environment_parameters"):
-                        controller.parse_run_config(self.config_path)
+                        controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_duplicate_games_remain_rejected(self) -> None:
         self.write_config(games=["counter", "counter"])
         for controller in CONTROLLERS:
             with self.assertRaisesRegex(RuntimeError, "games must be unique"):
-                controller.parse_run_config(self.config_path)
+                controller.parse_run_config(self.config_path, paths=self.paths)
 
     def test_variables_are_names_only_and_invalid_entries_are_not_echoed(self) -> None:
         secret = "secret-value-must-not-be-printed"
@@ -291,16 +328,15 @@ class RunConfigurationTest(unittest.TestCase):
             self.assertEqual(config.variables, ["API_KEY", "EMPTY_SETTING"])
             self.assertNotIn("private-value", repr(config))
 
-    def test_both_controllers_resolve_server_mounts_from_project_root(self) -> None:
+    def test_both_controllers_resolve_server_mounts_from_run_root(self) -> None:
         socket_dir = self.directory / "run_tb" / "socket with spaces"
         socket_dir.mkdir(parents=True)
         self.write_config(environment="terminal_bench", games=["terminal-bench-2.1-fix-git"],
                           server_mounts=[{"source": "run_tb/socket with spaces", "target": "/run/terminal-bench"}])
-        with patch.object(rf, "ROOT", self.directory):
-            for controller in CONTROLLERS:
-                config = controller.parse_run_config(self.config_path)
-                self.assertEqual(config.environment.mounts,
-                                 (rf.ServerMount(socket_dir, "/run/terminal-bench"),))
+        for controller in CONTROLLERS:
+            config = controller.parse_run_config(self.config_path, paths=self.paths)
+            self.assertEqual(config.environment.mounts,
+                             (rf.ServerMount(socket_dir, "/run/terminal-bench"),))
 
     def test_invalid_mounts_fail_before_launch(self) -> None:
         existing = str(self.directory)

@@ -22,8 +22,9 @@ import run_funs as rf
 
 class RunImagesTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(rf, "RUN_DIR", self.directory))
+        self.paths = rf.RunPaths(Path(self.enterContext(tempfile.TemporaryDirectory())))
+        self.directory = self.paths.run_dir
+        self.directory.mkdir()
         self.enterContext(patch.object(rf, "log_info"))
         self.logger = self.enterContext(patch.object(rf, "LOGGER"))
         self.exists = self.enterContext(patch.object(rf, "image_exists", return_value=False))
@@ -47,7 +48,7 @@ class RunImagesTest(unittest.TestCase):
             self.assertEqual(json.loads((self.directory / "docker_images.json").read_text()), asdict(images))
 
         self.build.side_effect = build
-        with rf.built_run_images("example", "agent_v1") as images:
+        with rf.built_run_images("example", "agent_v1", paths=self.paths) as images:
             self.remove.assert_not_called()
             self.build.assert_called_once_with("example", "agent_v1", images, agent_docker_build_args=None)
         self.remove.assert_called_once_with(images)
@@ -55,21 +56,21 @@ class RunImagesTest(unittest.TestCase):
     def test_partial_build_failure_still_removes_the_run_images(self) -> None:
         self.build.side_effect = RuntimeError("Second image failed")
         with self.assertRaisesRegex(RuntimeError, "Second image failed"):
-            with rf.built_run_images("example", "agent_v1"):
+            with rf.built_run_images("example", "agent_v1", paths=self.paths):
                 self.fail("Failed build yielded images")
         images = self.build.call_args.args[2]
         self.remove.assert_called_once_with(images)
 
     def test_preflight_or_scheduler_failure_also_removes_images(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Preflight failed"):
-            with rf.built_run_images("example", "agent_v1") as images:
+            with rf.built_run_images("example", "agent_v1", paths=self.paths) as images:
                 raise RuntimeError("Preflight failed")
         self.remove.assert_called_once_with(images)
 
     def test_existing_image_is_neither_built_nor_removed(self) -> None:
         self.exists.side_effect = [False, True]
         with self.assertRaisesRegex(RuntimeError, "already exists"):
-            with rf.built_run_images("example", "agent_v1"):
+            with rf.built_run_images("example", "agent_v1", paths=self.paths):
                 self.fail("Existing tag was accepted")
         self.build.assert_not_called()
         self.remove.assert_not_called()
@@ -78,7 +79,7 @@ class RunImagesTest(unittest.TestCase):
         manifest = self.directory / "docker_images.json"
         manifest.write_text("existing", encoding="utf-8")
         with self.assertRaises(FileExistsError):
-            with rf.built_run_images("example", "agent_v1"):
+            with rf.built_run_images("example", "agent_v1", paths=self.paths):
                 self.fail("Existing manifest was overwritten")
         self.assertEqual(manifest.read_text(), "existing")
         self.build.assert_not_called()
@@ -92,7 +93,7 @@ class RunImagesTest(unittest.TestCase):
 
         self.build.side_effect = build
         with self.assertRaises(KeyboardInterrupt):
-            with rf.built_run_images("example", "agent_v1"):
+            with rf.built_run_images("example", "agent_v1", paths=self.paths):
                 self.fail("Interrupted build yielded images")
         self.remove.assert_called_once()
         self.assertEqual({number: signal.getsignal(number) for number in previous}, previous)
@@ -105,7 +106,7 @@ class RunImagesTest(unittest.TestCase):
                 self.assertEqual(signal.getsignal(number), signal.SIG_IGN)
 
         self.remove.side_effect = remove
-        with rf.built_run_images("example", "agent_v1"):
+        with rf.built_run_images("example", "agent_v1", paths=self.paths):
             pass
         self.remove.assert_called_once()
         self.assertEqual({number: signal.getsignal(number) for number in previous}, previous)
@@ -113,11 +114,12 @@ class RunImagesTest(unittest.TestCase):
     def test_both_controllers_keep_images_alive_for_account_checks_and_scheduler(self) -> None:
         for controller in (accounts_controller, api_controller):
             with self.subTest(controller=controller.__name__), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-                stack.enter_context(patch.object(rf, "RUN_DIR", Path(directory)))
+                paths = rf.RunPaths(Path(directory))
+                paths.run_dir.mkdir()
                 config = dict(
                     games=["counter"], environment=rf.EnvironmentConfig("example", {}, []),
                     agent="agent_v1_07_wstop2", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
-                    agent_docker_build_args={"CODEX_VERSION": "0.153.4"},
+                    agent_docker_build_args={"CODEX_VERSION": "0.153.4"}, paths=paths,
                 )
                 if controller is accounts_controller:
                     config["accounts"] = ["codex01"]
@@ -140,7 +142,7 @@ class RunImagesTest(unittest.TestCase):
                     return 0
 
                 stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))
-                self.assertEqual(controller.main([]), 0)
+                self.assertEqual(controller.main(["--run-root", str(paths.root)]), 0)
                 self.remove.assert_called_once_with(self.build.call_args.args[2])
 
 

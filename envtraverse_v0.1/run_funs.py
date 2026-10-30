@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib
 import logging
 import os
@@ -24,12 +25,9 @@ from agent_api import LaunchPreparation
 
 
 ROOT = Path(__file__).resolve().parent
-RUN_CONFIG = ROOT / "run_config.yaml"
-RUN_DIR = ROOT / "run"
-RUNNER_LOG_PATH = RUN_DIR / "runner.log"
 AGENTS_DIR = ROOT / "src" / "agents"
 ENVIRONMENTS_DIR = ROOT / "src" / "server" / "environments"
-CODEX_ACCOUNTS_DIR = ROOT / "codex_accounts"
+CODEX_ACCOUNT_SCRIPTS_DIR = ROOT / "codex_accounts"
 BUILD_DOCKERS_SCRIPT = ROOT / "src" / "build_dockers.sh"
 
 SERVER_PORT = 8879
@@ -37,6 +35,47 @@ SERVER_START_TIMEOUT_SECONDS = 1800.0
 PROXY_PORT = 3128
 LOGGER = logging.getLogger("arc-runner")
 SERVER_MANAGED_VARIABLES = frozenset({"ENV_SERVER_HOST", "ENV_SERVER_PORT"})
+
+
+@dataclass(frozen=True)
+class RunPaths:
+    """Experiment paths, independent of the source checkout and caller's CWD."""
+
+    root: Path = ROOT
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "root", self.root.expanduser().resolve())
+
+    @property
+    def run_config(self) -> Path:
+        return self.root / "run_config.yaml"
+
+    @property
+    def accounts_dir(self) -> Path:
+        return self.root / "codex_accounts"
+
+    @property
+    def run_dir(self) -> Path:
+        return self.root / "run"
+
+    @property
+    def run_tb_dir(self) -> Path:
+        return self.root / "run_tb"
+
+    @property
+    def runner_log(self) -> Path:
+        return self.run_dir / "runner.log"
+
+    def resolve_config(self, override: Path | None) -> Path:
+        return self.run_config if override is None else override.expanduser().resolve()
+
+
+def add_run_path_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-root", type=Path, default=ROOT,
+                        help=f"directory for configuration, accounts and outputs; default: {ROOT}")
+    parser.add_argument("--run-config", type=Path,
+                        help="configuration file; default: <run-root>/run_config.yaml; "
+                             "explicit relative paths use the caller's working directory")
 
 
 @dataclass(frozen=True)
@@ -105,17 +144,19 @@ def set_logger_name(name: str) -> None:
     LOGGER = logging.getLogger(name)
 
 
-def setup_runner_logging() -> None:
-    if RUNNER_LOG_PATH.exists():
-        raise RuntimeError(f"runner log already exists: {RUNNER_LOG_PATH}")
+def setup_runner_logging(paths: RunPaths = RunPaths()) -> None:
+    if paths.runner_log.exists():
+        raise RuntimeError(f"runner log already exists: {paths.runner_log}")
 
     formatter = logging.Formatter(
         "%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
-    file_handler = logging.FileHandler(RUNNER_LOG_PATH, mode="x", encoding="utf-8")
+    file_handler = logging.FileHandler(paths.runner_log, mode="x", encoding="utf-8")
     file_handler.setFormatter(formatter)
 
+    for handler in LOGGER.handlers:
+        handler.close()
     LOGGER.handlers.clear()
     LOGGER.setLevel(logging.INFO)
     LOGGER.addHandler(file_handler)
@@ -249,7 +290,9 @@ def environment_directory(name: str) -> Path:
     return directory
 
 
-def parse_environment_config(config: dict[str, object], path: Path) -> EnvironmentConfig:
+def parse_environment_config(
+    config: dict[str, object], path: Path, *, paths: RunPaths = RunPaths(),
+) -> EnvironmentConfig:
     for key in ("competition", "tag"):
         if key in config:
             raise RuntimeError(f"move {key} in {path} into environment_parameters")
@@ -312,13 +355,14 @@ def parse_environment_config(config: dict[str, object], path: Path) -> Environme
         if target in targets:
             raise RuntimeError(f"Duplicate or reserved server mount target: {target}")
         targets.add(target)
-        source_path = (ROOT / source).resolve()
+        source_path = (paths.root / source).resolve()
         if not source_path.is_dir():
             message = f"Server mount source directory does not exist: {source_path}"
             if name == "terminal_bench":
                 message += (
                     "\nPlease run the host runtime first in a separate terminal: "
-                    "src/server/environments/terminal_bench/host_runtime/run.sh"
+                    f"{ROOT / 'src/server/environments/terminal_bench/host_runtime/run.sh'} "
+                    f"--run-root {str(paths.root)!r}"
                 )
             raise RuntimeError(message)
         mounts.append(ServerMount(source_path, target))
@@ -344,14 +388,16 @@ def validate_unique_games(games: list[str]) -> None:
         raise RuntimeError(f"games must be unique; duplicates: {duplicates}")
 
 
-def prepare_run_root() -> None:
-    if RUN_DIR.exists():
-        raise RuntimeError(f"run folder already exists: {RUN_DIR}")
-    RUN_DIR.mkdir()
+def prepare_run_root(paths: RunPaths = RunPaths()) -> None:
+    if os.path.lexists(paths.run_dir):
+        raise RuntimeError(f"run folder already exists: {paths.run_dir}")
+    paths.root.mkdir(parents=True, exist_ok=True)
+    paths.run_dir.mkdir()
 
 
-def make_run_writable() -> None:
+def make_run_writable(paths: RunPaths = RunPaths()) -> None:
     """Restore owner writes after shutdown, without following symlinks."""
+    run_dir = paths.run_dir
     def report_error(exc: OSError) -> None:
         LOGGER.warning("could not restore run write permissions: %s", exc)
         print(f"warning: could not restore run write permissions: {exc}", file=sys.stderr)
@@ -365,15 +411,15 @@ def make_run_writable() -> None:
             report_error(exc)
 
     try:
-        if RUN_DIR.is_symlink() or not RUN_DIR.is_dir():
+        if run_dir.is_symlink() or not run_dir.is_dir():
             return
     except OSError as exc:
         report_error(exc)
         return
 
-    log_info("restoring owner write permission in %s", RUN_DIR)
-    add_owner_write(RUN_DIR)
-    for directory, directories, files in os.walk(RUN_DIR, followlinks=False, onerror=report_error):
+    log_info("restoring owner write permission in %s", run_dir)
+    add_owner_write(run_dir)
+    for directory, directories, files in os.walk(run_dir, followlinks=False, onerror=report_error):
         for name in directories + files:
             add_owner_write(Path(directory) / name)
 
@@ -387,8 +433,8 @@ def initial_workspace_files(environment_name: str) -> Path | None:
     return source_dir
 
 
-def prepare_game_directory(game_alias: str) -> Path:
-    game_dir = RUN_DIR / game_alias
+def prepare_game_directory(game_alias: str, *, paths: RunPaths = RunPaths()) -> Path:
+    game_dir = paths.run_dir / game_alias
     game_dir.mkdir()
     (game_dir / "server").mkdir()
     return game_dir
@@ -519,6 +565,7 @@ def built_run_images(
     agent_name: str,
     *,
     agent_docker_build_args: dict[str, str] | None = None,
+    paths: RunPaths = RunPaths(),
 ) -> Iterator[RunImages]:
     """Own three unique tags across building, account checks and scheduling."""
     images = RunImages.create()
@@ -526,7 +573,7 @@ def built_run_images(
         if image_exists(image):
             raise RuntimeError(f"run image tag already exists: {image}")
     # Record names before building so partial builds and forced shutdowns can be inspected.
-    with (RUN_DIR / "docker_images.json").open("x", encoding="utf-8") as output:
+    with (paths.run_dir / "docker_images.json").open("x", encoding="utf-8") as output:
         json.dump(asdict(images), output, indent=2)
         output.write("\n")
 
@@ -689,6 +736,7 @@ def docker_server_command(
     game_id: str,
     *,
     image: str,
+    paths: RunPaths = RunPaths(),
 ) -> list[str]:
     command = [
         "docker", "run", "--rm", "--pull=never",
@@ -697,7 +745,7 @@ def docker_server_command(
         "--network", internal_network,
         "-e", "ENV_SERVER_HOST=0.0.0.0",
         "-e", f"ENV_SERVER_PORT={SERVER_PORT}",
-        "-v", f"{RUN_DIR / game_alias / 'server'}:/data",
+        "-v", f"{paths.run_dir / game_alias / 'server'}:/data",
     ]
 
     # Docker reads values from the host environment; commands and logs contain names only.
@@ -731,10 +779,11 @@ def start_server(
     game_id: str,
     *,
     image: str,
+    paths: RunPaths = RunPaths(),
 ) -> RunningContainer:
     verify_environment_variables(environment)
     command = docker_server_command(
-        container_name, internet_network, internal_network, environment, game_alias, game_id, image=image,
+        container_name, internet_network, internal_network, environment, game_alias, game_id, image=image, paths=paths,
     )
     log_info(
         "starting %s server for game %s as alias %s; container: %s",
@@ -829,6 +878,7 @@ def run_scheduler(
     images: RunImages,
     slots: Sequence[str],
     launch_agent: Callable[[str, str, str], RunningContainer],
+    paths: RunPaths = RunPaths(),
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
@@ -882,10 +932,10 @@ def run_scheduler(
                 alias, game = pending_games.popleft()
                 server_name = container_names.servers[game]
                 try:
-                    prepare_game_directory(alias)
+                    prepare_game_directory(alias, paths=paths)
                     server = start_server(
                         server_name, container_names.internet_network, container_names.internal_network,
-                        environment, alias, game, image=images.server,
+                        environment, alias, game, image=images.server, paths=paths,
                     )
                     running[slot] = RunningGame(
                         game, alias, server, time.monotonic() + SERVER_START_TIMEOUT_SECONDS,

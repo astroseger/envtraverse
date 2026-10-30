@@ -189,6 +189,43 @@ else:
             path.rmdir()
         self.assertEqual(self.calls(), [])
 
+    def test_external_relative_run_root_relocates_runtime_but_reuses_source_datasets(self):
+        root3 = self.checkout("3-0")
+        experiment = Path(self.temp.name) / "new experiment with spaces"
+        for name in ("run", "run_tb"):
+            (self.root / name).mkdir()
+            (self.root / name / "keep.txt").write_text("existing run")
+        self.run_script("run.sh", "--run-root", os.path.relpath(experiment, "/tmp"), "--verbose")
+        call = self.calls("terminal_bench.runtime")[0]
+        for flag, expected in (("--output", experiment / "run_tb/results"),
+                               ("--log-file", experiment / "run_tb/runtime.log"),
+                               ("--runs-dir", experiment / "run"), ("--tb3-root", root3)):
+            self.assertEqual(call[call.index(flag) + 1], str(expected))
+        self.assertEqual(call[call.index("--socket") + 1], "socket/runtime.sock")
+        self.assertIn("--verbose", call)
+        self.assertTrue((experiment / "run_tb/socket").is_dir())
+        self.assertFalse((experiment / "run").exists())
+        for name in ("run", "run_tb"):
+            self.assertEqual((self.root / name / "keep.txt").read_text(), "existing run")
+
+    def test_external_root_refuses_existing_outputs_and_broken_symlinks(self):
+        experiment = Path(self.temp.name) / "experiment"
+        experiment.mkdir()
+        for name in ("run", "run_tb"):
+            path = experiment / name
+            path.mkdir()
+            self.run_script("run.sh", "--run-root", str(experiment), success=False)
+            path.rmdir()
+            path.symlink_to(experiment / "missing")
+            self.run_script("run.sh", "--run-root", str(experiment), success=False)
+            path.unlink()
+        self.assertEqual(self.calls(), [])
+
+    def test_missing_run_root_argument_fails_before_launch(self):
+        for args in (("--run-root",), ("--run-root", ""), ("--run-root", "--verbose")):
+            self.run_script("run.sh", *args, success=False)
+        self.assertEqual(self.calls(), [])
+
     def test_broken_symlink_run_is_also_rejected(self):
         (self.root / "run").symlink_to(self.root / "missing")
         self.run_script("run.sh", success=False)

@@ -13,8 +13,8 @@ agent and model.
 
 Use Linux, Python 3.12+, Git, Docker Engine, and Docker Compose v2. Run the host
 runtime as the same user that runs the experiment so the server can access its
-socket. Archive any existing `run/` and `run_tb/` directories before starting a
-new experiment.
+socket. Archive any existing `run/` and `run_tb/` directories in the selected
+run root before starting a new experiment.
 
 ## Run with subscription accounts
 
@@ -47,10 +47,24 @@ model: gpt-5.6-sol
 reasoning_effort: max
 ```
 
-Keep the socket mount; its source is relative to `envtraverse_v0.1/`, even if the
-configuration lives elsewhere. The runtime creates the directory before the
+Keep the socket mount; its source is relative to the selected run root, which
+defaults to `envtraverse_v0.1/`, even if the configuration lives elsewhere.
+The runtime creates the directory before the
 controller starts. The fast service tier is optional and defaults to `false`
 when omitted.
+
+Use `--run-root` to keep an experiment outside the source checkout:
+
+```bash
+python3 run_controller_tb.py --run-root /path/to/experiment --benchmarks 4.0
+```
+
+This reads `/path/to/experiment/run_config.yaml`, uses account data from
+`/path/to/experiment/codex_accounts/`, and creates `run/` and `run_tb/` there.
+Source code, account helper scripts, the Harbor virtual environment, and downloaded
+benchmarks stay in the checkout. An explicit relative `--run-config` path is
+resolved against the caller's working directory. See
+[run roots](docs/running/README.md#choose-a-run-root) for account setup and path rules.
 
 For the full supplied task list, use:
 
@@ -124,6 +138,10 @@ The API-key runner allows all listed tasks to run concurrently and ignores
 `codex_accounts`. Use a task list that fits the host's resources. For manual
 subscription runs, use `run_controller.py` in the second terminal instead.
 
+For an external experiment, pass the same `--run-root /path/to/experiment` to
+both `host_runtime/run.sh` and the controller. The runtime's socket, results,
+and agent-workspace lookup then use that root.
+
 After the controller finishes, stop the runtime with Ctrl+C and let it finish
 grading and cleanup. The runtime remains running when idle until stopped.
 
@@ -133,7 +151,7 @@ With the wrapper, Ctrl+C stops the controller and then drains the runtime.
 Allow it to finish before archiving results. Task grading happens after solving;
 the controller's exit status is not a task score.
 
-Keep both directories:
+Keep both directories under the selected run root:
 
 - `run/`: agent workspaces, observations, client state, and server logs.
 - `run_tb/`: host-runtime logs and `results/<alias>/`, including `result.json`

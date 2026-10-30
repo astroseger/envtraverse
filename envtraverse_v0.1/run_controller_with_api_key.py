@@ -12,7 +12,7 @@ import run_funs as rf
 
 
 rf.set_logger_name("arc-runner.api-key")
-CHECK_CODEX_API_KEY_SCRIPT = rf.CODEX_ACCOUNTS_DIR / "check_codex_with_api_key.sh"
+CHECK_CODEX_API_KEY_SCRIPT = rf.CODEX_ACCOUNT_SCRIPTS_DIR / "check_codex_with_api_key.sh"
 API_KEY_WARNING = """\
 Running with API keys is very expensive. The used version of codex have a picularity that with API key the percentage of input token wich hit the cache is very low (in my test run which cost me 300$ it was <20%), when you run it via ChatGPT PRO subsciption this percentage is much higher >95%.
 
@@ -32,12 +32,13 @@ class RunConfig:
     parsed_run_config: dict[str, object]
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
+    paths: rf.RunPaths = rf.RunPaths()
 
 
-def parse_run_config(path: Path) -> RunConfig:
+def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
     loaded_config = rf.load_run_config(path)
     runner = rf.parse_runner_config(loaded_config, path)
-    environment = rf.parse_environment_config(loaded_config, path)
+    environment = rf.parse_environment_config(loaded_config, path, paths=paths)
     games = rf.parse_string_list(loaded_config, "games", path)
     agent = rf.parse_agent_name(loaded_config, path)
     agent_docker_build_args = rf.parse_agent_docker_build_args(loaded_config, path)
@@ -49,6 +50,7 @@ def parse_run_config(path: Path) -> RunConfig:
         parsed_run_config=loaded_config,
         runner=runner,
         agent_docker_build_args=agent_docker_build_args,
+        paths=paths,
     )
 
 
@@ -149,7 +151,7 @@ def run_scheduler(
     def launch_agent(_slot: str, game_alias: str, real_game: str) -> rf.RunningContainer:
         preparation = rf.prepare_agent_run(
             config.agent,
-            rf.RUN_DIR / game_alias,
+            config.paths.run_dir / game_alias,
             f"http://{container_names.servers[real_game]}:{rf.SERVER_PORT}",
             game_alias,
             config.parsed_run_config,
@@ -174,17 +176,13 @@ def run_scheduler(
         images=images,
         slots=list(game_id_mapping),  # One slot per game: launch all games in parallel.
         launch_agent=launch_agent,
+        paths=config.paths,
     )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run games in parallel with CODEX_API_KEY from OPENAI_API_KEY.")
-    parser.add_argument(
-        "--run-config",
-        type=Path,
-        default=rf.RUN_CONFIG,
-        help=f"run config to read; default: {rf.RUN_CONFIG}",
-    )
+    rf.add_run_path_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -198,20 +196,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     run_created = False
     try:
+        paths = rf.RunPaths(args.run_root)
         confirm_api_key_run()
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is not set in the environment")
-        run_config = args.run_config.resolve()
-        config = parse_run_config(run_config)
+        run_config = paths.resolve_config(args.run_config)
+        config = parse_run_config(run_config, paths=paths)
         rf.verify_environment_variables(config.environment)
         game_id_mapping = rf.build_game_id_mapping(config.games)
         container_names = rf.build_container_names(config.games)
         rf.verify_container_names_available(container_names)
         rf.verify_network_names_available(container_names)
-        rf.prepare_run_root()
+        rf.prepare_run_root(paths)
         run_created = True
-        rf.setup_runner_logging()
-        rf.LOGGER.info("runner log started: %s", rf.RUNNER_LOG_PATH)
+        rf.setup_runner_logging(paths)
+        rf.LOGGER.info("runner log started: %s", paths.runner_log)
+        rf.LOGGER.info("source root=%s run root=%s", rf.ROOT, paths.root)
         rf.LOGGER.info(
             "run config=%s games=%s environment=%s environment_parameters=%s environment_variables=%s",
             run_config,
@@ -234,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         with rf.built_run_images(
             config.environment.name, config.agent,
             agent_docker_build_args=config.agent_docker_build_args,
+            paths=paths,
         ) as images:
             verify_codex_api_key()
             exit_code = run_scheduler(config, container_names, game_id_mapping, images=images)
@@ -248,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         if run_created:
-            rf.make_run_writable()
+            rf.make_run_writable(paths)
 
 
 if __name__ == "__main__":

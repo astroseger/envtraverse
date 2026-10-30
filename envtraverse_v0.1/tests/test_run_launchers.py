@@ -4,6 +4,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -28,9 +29,9 @@ CONTROLLERS = (accounts_controller, api_controller)
 IMAGES = rf.RunImages.create()
 
 
-def make_config(controller, *, variables=()):
+def make_config(controller, *, variables=(), paths=rf.RunPaths()):
     settings = dict(
-        games=["counter"],
+        games=["counter"], paths=paths,
         environment=rf.EnvironmentConfig("example", {"target": 2}, list(variables)),
         agent="agent_v1",
         parsed_run_config={"agent": "agent_v1", "model": "test-model", "reasoning_effort": "medium"},
@@ -40,8 +41,8 @@ def make_config(controller, *, variables=()):
     return controller.RunConfig(**settings)
 
 
-def example_preparation(alias="alias", model="test-model", effort="medium"):
-    game_dir = rf.RUN_DIR / alias
+def example_preparation(alias="alias", model="test-model", effort="medium", *, paths=rf.RunPaths()):
+    game_dir = paths.run_dir / alias
     return rf.LaunchPreparation(
         command=["python3", "agent_runner.py", alias, "--model", model, "--reasoning-effort", effort],
         mounts=[AgentMount(game_dir / "client", "/client"),
@@ -50,8 +51,9 @@ def example_preparation(alias="alias", model="test-model", effort="medium"):
     )
 
 
-def prepare_game(alias, environment):
-    game_dir = rf.prepare_game_directory(alias)
+def prepare_game(alias, environment, *, paths=rf.RunPaths()):
+    paths.run_dir.mkdir(exist_ok=True)
+    game_dir = rf.prepare_game_directory(alias, paths=paths)
     rf.prepare_agent_run(
         "agent_v1", game_dir, f"http://env-server:{rf.SERVER_PORT}", alias,
         {"model": "gpt-5.6-sol", "reasoning_effort": "max"},
@@ -65,10 +67,64 @@ def environment_arguments(command):
 
 
 class LauncherTest(unittest.TestCase):
+    def test_both_controllers_read_external_default_config_and_keep_outputs_in_run_root(self) -> None:
+        for controller in CONTROLLERS:
+            with self.subTest(controller=controller.__name__), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                paths = rf.RunPaths(Path(directory) / "experiment with spaces")
+                (paths.accounts_dir / "codex01").mkdir(parents=True)
+                (paths.root / "resources").mkdir()
+                paths.run_config.write_text(
+                    "agent: agent_v1\nenvironment: example\ngames: [counter]\ncodex_accounts: [codex01]\n"
+                    "model: test-model\nreasoning_effort: medium\n"
+                    "server_mounts: [{source: resources, target: /resources}]\n"
+                )
+                logger = logging.Logger("run-root-test")
+                stack.enter_context(patch.object(rf, "LOGGER", logger))
+                stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}))
+                for name in ("verify_container_names_available", "verify_network_names_available", "build_dockers", "remove_run_images"):
+                    stack.enter_context(patch.object(rf, name))
+                stack.enter_context(patch.object(rf, "image_exists", return_value=False))
+                preflight = "verify_codex_accounts" if controller is accounts_controller else "verify_codex_api_key"
+                stack.enter_context(patch.object(controller, preflight))
+                if controller is api_controller:
+                    stack.enter_context(patch.object(controller, "confirm_api_key_run"))
+                stack.enter_context(patch.object(rf.subprocess, "run", side_effect=AssertionError("Unexpected subprocess")))
+                stack.enter_context(patch.object(rf.subprocess, "Popen", side_effect=AssertionError("Unexpected subprocess")))
+
+                def schedule(config, _names, _mapping, *, images):
+                    self.assertEqual(config.paths, paths)
+                    self.assertEqual(config.environment.mounts,
+                                     (rf.ServerMount(paths.root / "resources", "/resources"),))
+                    game = rf.prepare_game_directory("alias", paths=config.paths)
+                    rf.prepare_agent_run(config.agent, game, "http://server:8879", "alias", config.parsed_run_config)
+                    self.assertEqual(json.loads((paths.run_dir / "docker_images.json").read_text())["agent"], images.agent)
+                    return 0
+
+                stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))
+                result = controller.main(["--run-root", str(paths.root)])
+                for handler in logger.handlers:
+                    stack.callback(handler.close)
+                self.assertEqual(result, 0)
+                self.assertIn(str(paths.root), paths.runner_log.read_text())
+                self.assertTrue((paths.run_dir / "alias/client/client_config.json").is_file())
+                self.assertTrue((paths.run_dir / "alias/run/agent.py").is_file())
+                self.assertFalse(paths.run_tb_dir.exists())
+
+    def test_account_preflight_runs_source_script_with_external_account_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paths = rf.RunPaths(Path(directory))
+            config = make_config(accounts_controller, paths=paths)
+            with patch.object(accounts_controller.subprocess, "run", return_value=Mock(returncode=0)) as run:
+                accounts_controller.verify_codex_accounts(config)
+            run.assert_called_once_with(
+                [str(ROOT / "codex_accounts/check_account.sh"), str(paths.accounts_dir / "codex01")],
+                cwd=ROOT, check=False,
+            )
+
     def test_server_and_client_configuration_use_the_same_nondefault_port(self) -> None:
-        with tempfile.TemporaryDirectory() as directory, patch.object(rf, "RUN_DIR", Path(directory)), patch.object(rf, "SERVER_PORT", 19234):
+        with tempfile.TemporaryDirectory() as directory, patch.object(rf, "SERVER_PORT", 19234):
             for index, controller in enumerate(CONTROLLERS):
-                game_dir = prepare_game(str(index), "example")
+                game_dir = prepare_game(str(index), "example", paths=rf.RunPaths(Path(directory)))
                 config = json.loads((game_dir / "client" / "client_config.json").read_text(encoding="utf-8"))
                 self.assertEqual(config["server_url"], "http://env-server:19234")
             command = rf.docker_server_command("env-server", "internet", "internal", rf.EnvironmentConfig("example", {}, []), "alias", "counter", image=IMAGES.server)
@@ -89,7 +145,7 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(command[command.index("--game-id") + 1], "ls20")
         self.assertEqual(command[command.index("--game-alias") + 1], "public-alias")
         self.assertFalse(any("GAME_ID_MAPPING_JSON" in value for value in forwarded))
-        self.assertIn(f"{rf.RUN_DIR / 'public-alias' / 'server'}:/data", command)
+        self.assertIn(f"{rf.RunPaths().run_dir / 'public-alias' / 'server'}:/data", command)
         self.assertEqual([command[i + 1] for i, part in enumerate(command) if part == "--network"], ["internet", "internal"])
         self.assertNotIn("-p", command)
         self.assertNotIn("private-key", repr(command))
@@ -203,7 +259,7 @@ class LauncherTest(unittest.TestCase):
                 else:
                     stack.enter_context(patch.object(controller, "verify_codex_accounts"))
                 self.assertEqual(controller.main([]), 0)
-                build.assert_called_once_with("example", "agent_v1", agent_docker_build_args={})
+                build.assert_called_once_with("example", "agent_v1", agent_docker_build_args={}, paths=config.paths)
                 self.assertEqual(scheduler.call_args.kwargs, {"images": IMAGES})
                 self.assertIs(scheduler.call_args.args[0], config)
                 if controller is api_controller:
@@ -236,18 +292,18 @@ class LauncherTest(unittest.TestCase):
                 server.assert_called_once_with(
                     names.servers["counter"], names.internet_network, names.internal_network,
                     config.environment, "public-alias", "counter",
-                    image=IMAGES.server,
+                    image=IMAGES.server, paths=config.paths,
                 )
-                prepare.assert_called_once_with("public-alias")
+                prepare.assert_called_once_with("public-alias", paths=config.paths)
                 prepare_agent.assert_called_once_with(
-                    "agent_v1", rf.RUN_DIR / "public-alias",
+                    "agent_v1", rf.RunPaths().run_dir / "public-alias",
                     f"http://{names.servers['counter']}:{rf.SERVER_PORT}", "public-alias", config.parsed_run_config,
                     initial_files_dir=None,
                 )
                 self.assertIs(game.call_args.args[-1], prepare_agent.return_value)
                 expected_kwargs = {"agent_image": IMAGES.agent, "runner": config.runner}
                 if controller is accounts_controller:
-                    expected_kwargs["fast_service_tier"] = False
+                    expected_kwargs.update(fast_service_tier=False, paths=config.paths)
                 self.assertEqual(game.call_args.kwargs, expected_kwargs)
 
     def test_controllers_choose_account_slots_or_one_slot_per_game(self) -> None:
@@ -273,7 +329,7 @@ class LauncherTest(unittest.TestCase):
                     expected_kwargs = {"agent_image": IMAGES.agent, "runner": config.runner}
                     if controller is accounts_controller:
                         expected_args = ("codex01", *expected_args)
-                        expected_kwargs["fast_service_tier"] = False
+                        expected_kwargs.update(fast_service_tier=False, paths=config.paths)
                     launch.assert_called_once_with(*expected_args, **expected_kwargs)
 
     def test_scheduler_applies_service_tier_before_each_agent_launch(self) -> None:
@@ -287,7 +343,7 @@ class LauncherTest(unittest.TestCase):
                 clean = stack.enter_context(patch.object(accounts_controller, "clean_codex_account"))
 
                 def launch(*_args, **_kwargs):
-                    clean.assert_called_once_with("codex01", fast_service_tier=enabled)
+                    clean.assert_called_once_with("codex01", fast_service_tier=enabled, paths=config.paths)
                     return Mock()
 
                 popen = stack.enter_context(patch.object(accounts_controller.subprocess, "Popen", side_effect=launch))
@@ -300,36 +356,36 @@ class LauncherTest(unittest.TestCase):
 
     def test_account_cleanup_adds_fast_tier_without_duplicates_and_removes_it_when_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            accounts = Path(directory) / "accounts with spaces"
+            paths = rf.RunPaths(Path(directory) / "experiment with spaces")
+            accounts = paths.accounts_dir
             account = accounts / "codex01"
             account.mkdir(parents=True)
             auth = account / "auth.json"
             auth.write_text('{"test": "not a real account"}\n', encoding="utf-8")
             auth_contents = auth.read_bytes()
-            with patch.object(rf, "CODEX_ACCOUNTS_DIR", accounts):
-                for enabled in (False, True, True, False, True):
-                    with self.subTest(enabled=enabled):
-                        # Exercise the real shell cleanup, only on this temporary account.
-                        accounts_controller.clean_codex_account("codex01", fast_service_tier=enabled)
-                        saved = tomllib.loads((account / "config.toml").read_text(encoding="utf-8"))
-                        expected = {"web_search": "disabled"}
-                        if enabled:
-                            expected["service_tier"] = "fast"
-                        self.assertEqual(saved, expected)
-                        self.assertEqual(auth.read_bytes(), auth_contents)
+            for enabled in (False, True, True, False, True):
+                with self.subTest(enabled=enabled):
+                    # Exercise the real shell cleanup, only on this temporary account.
+                    accounts_controller.clean_codex_account("codex01", fast_service_tier=enabled, paths=paths)
+                    saved = tomllib.loads((account / "config.toml").read_text(encoding="utf-8"))
+                    expected = {"web_search": "disabled"}
+                    if enabled:
+                        expected["service_tier"] = "fast"
+                    self.assertEqual(saved, expected)
+                    self.assertEqual(auth.read_bytes(), auth_contents)
 
     def test_failed_account_cleanup_does_not_write_service_tier(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            account = Path(directory) / "codex01"
-            account.mkdir()
+            paths = rf.RunPaths(Path(directory))
+            account = paths.accounts_dir / "codex01"
+            account.mkdir(parents=True)
             config = account / "config.toml"
             original = 'web_search = "disabled"\n'
             config.write_text(original, encoding="utf-8")
-            with patch.object(rf, "CODEX_ACCOUNTS_DIR", Path(directory)), \
-                    patch.object(accounts_controller.subprocess, "run", return_value=Mock(returncode=1)), \
+            with patch.object(accounts_controller.subprocess, "run", return_value=Mock(returncode=1)), \
                     self.assertLogs(rf.LOGGER, level="ERROR"), \
                     self.assertRaisesRegex(RuntimeError, "clean failed"):
-                accounts_controller.clean_codex_account("codex01", fast_service_tier=True)
+                accounts_controller.clean_codex_account("codex01", fast_service_tier=True, paths=paths)
             self.assertEqual(config.read_text(encoding="utf-8"), original)
 
     def test_agent_commands_do_not_receive_backend_variables_parameters_or_real_game_ids(self) -> None:
@@ -359,7 +415,7 @@ class LauncherTest(unittest.TestCase):
                     self.assertFalse(any(value.startswith(variable + "=") for value in environment_arguments(command)))
                 self.assertIn(f"HTTP_PROXY=http://{names.proxy}:{rf.PROXY_PORT}", environment_arguments(command))
                 mounts = [command[index + 1] for index, part in enumerate(command) if part == "-v"]
-                game_dir = rf.RUN_DIR / "public-alias"
+                game_dir = rf.RunPaths().run_dir / "public-alias"
                 self.assertIn(f"{game_dir / 'client'}:/client:rw", mounts)
                 self.assertIn(f"{game_dir / 'observations'}:/observations:rw", mounts)
                 self.assertIn(f"{game_dir / 'run'}:/home/user/run:rw", mounts)
@@ -428,8 +484,8 @@ class LauncherTest(unittest.TestCase):
         for controller in CONTROLLERS:
             for environment in ("arc3", "agimaze_single", "example"):
                 with self.subTest(controller=controller.__name__, environment=environment):
-                    with tempfile.TemporaryDirectory() as directory, patch.object(rf, "RUN_DIR", Path(directory)):
-                        game_dir = prepare_game("public-alias", environment)
+                    with tempfile.TemporaryDirectory() as directory:
+                        game_dir = prepare_game("public-alias", environment, paths=rf.RunPaths(Path(directory)))
                         workspace = game_dir / "run" / "workspace_init"
                         self.assertEqual(workspace.is_dir(), environment == "arc3")
                         self.assertFalse((workspace / "main_prompt.md").exists())
@@ -464,8 +520,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
     def controller_run(self, controller):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             run_dir = Path(directory) / "run"
-            stack.enter_context(patch.object(rf, "RUN_DIR", run_dir))
-            stack.enter_context(patch.object(controller, "parse_run_config", return_value=make_config(controller)))
+            stack.enter_context(patch.object(controller, "parse_run_config", return_value=make_config(controller, paths=rf.RunPaths(Path(directory)))))
             stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True))
             for method in ("verify_container_names_available", "verify_network_names_available", "setup_runner_logging", "log_info", "LOGGER"):
                 stack.enter_context(patch.object(rf, method))
@@ -522,7 +577,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
                 stack.enter_context(patch.object(rf, "stop_container", side_effect=stop))
                 stack.enter_context(patch.object(controller, "start_agent", side_effect=launch))
                 stack.enter_context(patch.object(rf.time, "sleep"))
-                self.assertEqual(controller.main([]), 0)
+                self.assertEqual(controller.main(["--run-root", str(run_dir.parent)]), 0)
                 self.assertEqual(stopped, ["agent for game counter", "server for game counter", "proxy"])
                 self.assert_writable(run_dir)
 
@@ -537,7 +592,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
                         return outcome
 
                     stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))
-                    self.assertEqual(controller.main([]), 1 if isinstance(outcome, Exception) else outcome)
+                    self.assertEqual(controller.main(["--run-root", str(run_dir.parent)]), 1 if isinstance(outcome, Exception) else outcome)
                     self.assert_writable(run_dir)
 
     def test_keyboard_interrupt_also_restores_permissions(self) -> None:
@@ -548,7 +603,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
                     raise KeyboardInterrupt
 
                 stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))
-                self.assertEqual(controller.main([]), 130)
+                self.assertEqual(controller.main(["--run-root", str(run_dir.parent)]), 130)
                 self.assert_writable(run_dir)
 
     def test_startup_failure_after_creating_run_also_restores_permissions(self) -> None:
@@ -560,7 +615,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
 
                 stack.enter_context(patch.object(rf, "build_dockers", side_effect=build))
                 scheduler = stack.enter_context(patch.object(controller, "run_scheduler"))
-                self.assertEqual(controller.main([]), 1)
+                self.assertEqual(controller.main(["--run-root", str(run_dir.parent)]), 1)
                 scheduler.assert_not_called()
                 self.assert_writable(run_dir)
 
@@ -569,7 +624,7 @@ class ShutdownPermissionsTest(unittest.TestCase):
             with self.subTest(controller=controller.__name__), self.controller_run(controller) as (run_dir, stack):
                 output = self.create_readonly_output(run_dir)
                 restore = stack.enter_context(patch.object(rf, "make_run_writable", wraps=rf.make_run_writable))
-                self.assertEqual(controller.main([]), 1)
+                self.assertEqual(controller.main(["--run-root", str(run_dir.parent)]), 1)
                 restore.assert_not_called()
                 self.assertEqual(stat.S_IMODE(run_dir.stat().st_mode), 0o555)
                 self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o444)

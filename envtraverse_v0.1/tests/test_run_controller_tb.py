@@ -33,6 +33,9 @@ def wait_for(name):
     while not (ROOT / name).exists():
         time.sleep(.01)
 
+def run_root():
+    return Path(sys.argv[sys.argv.index('--run-root') + 1]) if '--run-root' in sys.argv else ROOT
+
 def setup():
     (ROOT / 'setup.pid').write_text(str(os.getpid()))
     if OPTIONS.get('block_setup'):
@@ -83,8 +86,8 @@ def runtime():
         event('runtime_stop_requested', signum=signum)
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    (ROOT / 'run_tb').mkdir()
-    event('runtime_started', cwd=os.getcwd())
+    (run_root() / 'run_tb').mkdir(parents=True)
+    event('runtime_started', args=sys.argv[2:], cwd=os.getcwd())
     if 'runtime_start_exit' in OPTIONS:
         return OPTIONS['runtime_start_exit']
     while OPTIONS.get('block_ready') and not (ROOT / 'release_ready').exists():
@@ -128,7 +131,7 @@ def controller():
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     assert (ROOT / 'runtime_ready').exists()
-    (ROOT / 'run').mkdir()
+    (run_root() / 'run').mkdir()
     event('controller_started', args=sys.argv[1:], cwd=os.getcwd())
     print('controller output', flush=True)
     if OPTIONS.get('block_controller'):
@@ -153,6 +156,8 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.host = self.root / "src/server/environments/terminal_bench/host_runtime"
         self.host.mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.root / SCRIPT.name)
+        for name in ("run_funs.py", "agent_api.py"):
+            shutil.copyfile(SCRIPT.parent / name, self.root / name)
         helper = self.root / "fake_processes.py"
         helper.write_text(FAKE_PROCESSES)
         for script, mode in (("setup.sh", "setup"), ("run.sh", "runtime")):
@@ -239,7 +244,7 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.assert_order("setup_started", "runtime_ready", "controller_started", "controller_completed",
                           "runtime_stop_requested", "worker_completed", "runtime_completed")
         controller = next(event for event in self.events() if event["event"] == "controller_started")
-        self.assertEqual(controller["args"], ["--run-config", str(config)])
+        self.assertEqual(controller["args"], ["--run-root", str(self.root), "--run-config", str(config)])
         setup = next(event for event in self.events() if event["event"] == "setup_started")
         self.assertEqual(setup["args"], [])
         self.assertTrue(all(event["cwd"] == str(self.root) for event in self.events() if "cwd" in event))
@@ -252,6 +257,53 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.finish(process)
         self.assertNotIn("No active sessions", self.output())
         self.assertTrue((self.root / "runtime_completed").exists())
+
+    def test_external_relative_run_root_uses_its_default_config_and_source_scripts(self):
+        experiment = self.outside / "experiment with spaces"
+        experiment.mkdir()
+        config = experiment / "run_config.yaml"
+        config.write_text("environment: terminal_bench\ngames: [terminal-bench-4.0-example]\n")
+        # Existing outputs in the checkout must not block an external experiment.
+        for name in ("run", "run_tb"):
+            (self.root / name).mkdir()
+            (self.root / name / "keep.txt").write_text("existing run")
+        process = self.start(arguments=["--run-root", experiment.name, "--benchmarks", "4.0"])
+        self.finish(process)
+        self.assertTrue((experiment / "run").is_dir())
+        self.assertTrue((experiment / "run_tb").is_dir())
+        for name in ("run", "run_tb"):
+            self.assertEqual((self.root / name / "keep.txt").read_text(), "existing run")
+        setup, runtime, controller = (next(event for event in self.events() if event["event"] == name)
+                                      for name in ("setup_started", "runtime_started", "controller_started"))
+        self.assertEqual(setup["args"], ["--benchmarks", "4.0"])
+        self.assertEqual(runtime["args"], ["--run-root", str(experiment)])
+        self.assertEqual(controller["args"], ["--run-root", str(experiment), "--run-config", str(config)])
+        self.assertTrue(all(event["cwd"] == str(self.root) for event in (setup, runtime, controller)))
+
+    def test_external_run_root_keeps_explicit_relative_config_relative_to_caller(self):
+        experiment = self.outside / "experiment"
+        experiment.mkdir()
+        (experiment / "run_config.yaml").write_text("environment: wrong\n")
+        config = self.outside / "explicit.yaml"
+        config.write_text("environment: terminal_bench\n")
+        process = self.start(arguments=["--run-root", experiment.name, "--run-config", config.name])
+        self.finish(process)
+        controller = next(event for event in self.events() if event["event"] == "controller_started")
+        self.assertEqual(controller["args"], ["--run-root", str(experiment), "--run-config", str(config)])
+
+    def test_external_run_root_rejects_existing_outputs_before_setup(self):
+        experiment = self.outside / "experiment"
+        experiment.mkdir()
+        (experiment / "run_config.yaml").write_text("environment: terminal_bench\n")
+        for name in ("run", "run_tb"):
+            with self.subTest(name=name):
+                path = experiment / name
+                path.mkdir()
+                process = self.start(arguments=["--run-root", str(experiment)])
+                self.finish(process, 1)
+                self.assertIn(str(path), self.output())
+                self.assertEqual(self.events(), [])
+                path.rmdir()
 
     def test_controller_failure_is_preserved_and_runtime_is_drained(self):
         process = self.start(options={"controller_exit": 7, "no_summary": True})
@@ -365,7 +417,7 @@ class TerminalBenchControllerTests(unittest.TestCase):
         setup = next(event for event in self.events() if event["event"] == "setup_started")
         self.assertEqual(setup["args"], ["--benchmarks", "science-0.1"])
         controller = next(event for event in self.events() if event["event"] == "controller_started")
-        self.assertEqual(controller["args"], ["--run-config", str(config)])
+        self.assertEqual(controller["args"], ["--run-root", str(self.root), "--run-config", str(config)])
         self.assertEqual(config.read_text(), source.read_text())
 
     def test_combined_selection_accepts_mixed_games(self):

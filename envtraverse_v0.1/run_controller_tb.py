@@ -14,8 +14,10 @@ import time
 
 import yaml
 
+import run_funs as rf
 
-ROOT = Path(__file__).resolve().parent
+
+ROOT = rf.ROOT
 RUNTIME_START_TIMEOUT_SECONDS = 3600
 SUPPORTED_BENCHMARKS = ("2.1", "3.0", "4.0", "science-0.1")
 
@@ -118,10 +120,14 @@ def stop_process(process: subprocess.Popen, *, startup_group: bool = False) -> i
     return process.wait()
 
 
-def run_experiment(root: Path, run_config: Path, *, benchmarks: str | None = None) -> int:
-    for name in ("run", "run_tb"):
-        if os.path.lexists(root / name):
-            raise RuntimeError(f"Run folder already exists: {root / name}")
+def run_experiment(
+    source_root: Path, run_config: Path, *, benchmarks: str | None = None,
+    paths: rf.RunPaths | None = None,
+) -> int:
+    paths = paths or rf.RunPaths(source_root)
+    for directory in (paths.run_dir, paths.run_tb_dir):
+        if os.path.lexists(directory):
+            raise RuntimeError(f"Run folder already exists: {directory}")
     with run_config.open(encoding="utf-8") as source:
         config = yaml.safe_load(source)
     if not isinstance(config, dict) or config.get("environment") != "terminal_bench":
@@ -129,7 +135,7 @@ def run_experiment(root: Path, run_config: Path, *, benchmarks: str | None = Non
     if benchmarks is not None:
         validate_benchmark_games(config, run_config, benchmarks)
 
-    host = root / "src/server/environments/terminal_bench/host_runtime"
+    host = source_root / "src/server/environments/terminal_bench/host_runtime"
     setup = runtime = controller = None
     output = None
     shutdown = ShutdownRequest()
@@ -146,21 +152,21 @@ def run_experiment(root: Path, run_config: Path, *, benchmarks: str | None = Non
         setup_command = ["bash", str(host / "setup.sh")]
         if benchmarks is not None:
             setup_command.extend(["--benchmarks", benchmarks])
-        setup = start_process(root, setup_command)
+        setup = start_process(source_root, setup_command)
         setup_code = wait_process(setup, shutdown)
         if setup_code != 0:
             raise RuntimeError(f"Host runtime setup failed (exit code {setup_code})")
 
         print("[tb] Starting the host runtime.", flush=True)
-        runtime = start_process(root, ["bash", str(host / "run.sh")], stdout=subprocess.PIPE,
+        runtime = start_process(source_root, ["bash", str(host / "run.sh"), "--run-root", str(paths.root)], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                                 errors="replace", bufsize=1)
         output = RuntimeOutput(runtime)
         output.wait_ready(shutdown)
 
         print("[tb] Starting run_controller.py.", flush=True)
-        controller = start_process(root, [sys.executable, "-u", str(root / "run_controller.py"),
-                                          "--run-config", str(run_config)])
+        controller = start_process(source_root, [sys.executable, "-u", str(source_root / "run_controller.py"),
+                                                "--run-root", str(paths.root), "--run-config", str(run_config)])
         exit_code = wait_process(controller, shutdown, runtime=runtime)
     except KeyboardInterrupt:
         print("[tb] Interrupted; stopping the controller before shutting down the runtime.", flush=True)
@@ -192,14 +198,14 @@ def run_experiment(root: Path, run_config: Path, *, benchmarks: str | None = Non
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-config", type=Path, default=ROOT / "run_config.yaml",
-                        help="run config to pass to run_controller.py; default: run_config.yaml in the project")
+    rf.add_run_path_arguments(parser)
     parser.add_argument("--benchmarks", type=parse_benchmarks, metavar="VERSIONS",
                         help="datasets to prepare: 2.1, 3.0, 4.0, science-0.1, comma-separated, or all; "
                              "default setup: 2.1. Explicit selections must include all configured games")
     args = parser.parse_args(argv)
     try:
-        return run_experiment(ROOT, args.run_config.resolve(), benchmarks=args.benchmarks)
+        paths = rf.RunPaths(args.run_root)
+        return run_experiment(ROOT, paths.resolve_config(args.run_config), benchmarks=args.benchmarks, paths=paths)
     except KeyboardInterrupt:
         return 130
     except (OSError, RuntimeError, yaml.YAMLError) as exc:
