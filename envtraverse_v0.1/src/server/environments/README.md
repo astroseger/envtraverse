@@ -23,6 +23,7 @@ processes. It does not push unsolicited observations to the agent.
 | [arc3_minimal_raw](arc3_minimal_raw/README.md) | ARC-AGI-3 with a minimal task description and raw SDK observations in JSON |
 | [arc3_minimal_img_wnoise3](arc3_minimal_img_wnoise3/README.md) | ARC-AGI-3 images with configurable color noise and geometric deformation |
 | [arc3_minimal_img_wnoise3_whighlight2](arc3_minimal_img_wnoise3_whighlight2/README.md) | Noisy, deformed ARC-AGI-3 images with an auxiliary pixel-highlight action |
+| [arc3_minimal_img_wnoise4](arc3_minimal_img_wnoise4/README.md) | Noisy, deformed ARC-AGI-3 images with configurable rotation after each action |
 | [agimaze_single](agimaze_single/README.md) | One labyrinth; manages a local engine subprocess |
 | [agimaze_set_v1](agimaze_set_v1/README.md) | An ordered sequence of labyrinths in one session |
 | [terminal_bench](terminal_bench/README.md) | Terminal tasks backed by a separate host runtime |
