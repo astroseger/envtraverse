@@ -158,8 +158,8 @@ def minimum_jacobian(plan: FFDPlan, controls: tuple[np.ndarray, ...],
 
 def sample_controls(plans: tuple[FFDPlan, ...], amplitudes: tuple[tuple[float, ...], ...],
                     rng: np.random.Generator, threshold: float) -> tuple[np.ndarray, ...]:
-    """Share normalized controls across step frames, checking every distinct frame shape."""
-    for _ in range(100):
+    """Retry until shared normalized controls pass every distinct frame shape."""
+    while True:
         controls = tuple(
             rng.uniform(-1, 1, (*shape, 2)).astype(np.float32)
             for shape in plans[0].grid_shapes
@@ -167,7 +167,3 @@ def sample_controls(plans: tuple[FFDPlan, ...], amplitudes: tuple[tuple[float, .
         if all(minimum_jacobian(plan, controls, bounds) >= threshold
                for plan, bounds in zip(plans, amplitudes, strict=True)):
             return controls
-    raise ValueError(
-        "Unable to sample FFD above minimum_sampled_jacobian after 100 attempts; "
-        "reduce grid amplitudes or the Jacobian threshold."
-    )
