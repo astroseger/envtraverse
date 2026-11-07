@@ -9,14 +9,33 @@
 See the [EnvTraverse v0.1 README](../../envtraverse_v0.1/README.md) for framework
 setup and usage.
 
+## Results and configurations
+
+The [Zenodo record](https://zenodo.org/records/24021388) contains:
+
+- `main_study_results_and_configs.tar.gz` — Per-game action records, scorecards,
+  summary tables, and configurations for rerunning the main-study experiments
+  with EnvTraverse.
+- `followup_study_results_and_configs.tar.gz` — The same materials for the
+  followup-study experiments.
+
 ## Full run artifacts
 
-- [Run archive (57 GB)](https://www.dropbox.com/scl/fi/ag5ozz4jfct5fo2jzou8c/full_runs_no_jpg_after_step_10.tar.xz?rlkey=t0ijvgl88oird0ttamiun48q4&st=qoh3een0&dl=0) —
-  Experiment outputs, including `run/` directories and `run_config.yaml` files.
-  Noisy images compress poorly, so the full runs exceed 300 GB. This archive omits
-  JPEG observation files after step 10. Access to the full runs can be arranged on request.
-- [Results and configurations](https://www.dropbox.com/scl/fi/xqbyt48qa3eo57lob3zdq/only_results_and_configs.tar.gz?rlkey=dq3zo8qhq5r8xipbkjhidnt37&st=nxlrzjzh&dl=0) —
-  A compact archive containing result files, summary tables, and run configurations.
+The complete `lf52` run under strong warping and extreme pixel noise
+(σ = 1200), examined in the paper, is available on
+[Zenodo](https://zenodo.org/records/24021388) as
+`followup_sigma1200_lf52_run.tar.gz`. The agent's workspace, including
+generated scripts and processed images, is in `run/agent_run`; raw observations
+are in `observations`.
+
+The complete run artifacts for the main and followup studies total approximately
+700 GB, largely because noisy observation images compress poorly. Hosting the
+entire collection for public download is impractical, but we can share the full
+collection or any subset on request. Please contact the author to arrange access.
+
+A [reduced main-study archive (57 GB)](https://www.dropbox.com/scl/fi/ag5ozz4jfct5fo2jzou8c/full_runs_no_jpg_after_step_10.tar.xz?rlkey=t0ijvgl88oird0ttamiun48q4&st=qoh3een0&dl=0)
+is available on Dropbox. It contains the main-study run artifacts, with only
+JPEG observation files after step 10 omitted.
 
 ## Citation
 
