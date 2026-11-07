@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from analysis_scripts.agimaze_single import print_results_md_v1 as report
-from analysis_scripts.agimaze_single_old import print_results_md_v1 as legacy
 from analysis_scripts.arc3 import print_results_md_cost as arc3_report
 
 
@@ -48,17 +47,15 @@ class AgimazeReportTest(unittest.TestCase):
     def write_tokens(self, payload) -> None:
         self.tokens_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    def test_markdown_matches_old_script_exactly(self) -> None:
-        results = [report.LabyrinthResult(f"maze/{index}.json", steps, 10, solved)
-                   for index, (steps, solved) in enumerate(((0, False), (10, True), (11, True), (20, True), (21, True), (50, True)))]
-        self.assertEqual(report.render_markdown(results), legacy.render_markdown(results))
-
-    def test_builtin_sort_matches_every_entry_in_old_order_file(self) -> None:
-        paths = json.loads(legacy.ORDER_PATH.read_text())
-        results = [report.LabyrinthResult(f"{name}/0000.json", 0, 70, False) for name in reversed(paths)]
-        ordered = report.order_results(results)
-        self.assertEqual([item.name for item in ordered], [f"{name}/0000.json" for name in paths])
-        self.assertEqual(ordered, legacy.order_results(results))
+    def test_builtin_sort_orders_groups_stages_and_classic_difficulties(self) -> None:
+        names = [
+            "TUTORIAL/STAGE-02/0000.json", "TUTORIAL/STAGE-10/0000.json",
+            "TRAINING/S0-keys/STAGE-01/0000.json", "TRAINING/S1-rivers/STAGE-01/0000.json",
+            "CLASSIC/EASY/maze.json", "CLASSIC/MEDIUM/maze.json", "CLASSIC/HARD/maze.json",
+            "EXTENDED/boat/STAGE-01/0000.json",
+        ]
+        results = [report.LabyrinthResult(name, 0, 70, False) for name in reversed(names)]
+        self.assertEqual([item.name for item in report.order_results(results)], names)
 
     def test_new_categories_stages_and_multiple_filenames_sort_without_external_order(self) -> None:
         names = ["NEW/maze10.json", "TRAINING/S0-keys/STAGE-10/0000.json", "NEW/maze2.json",
@@ -67,7 +64,7 @@ class AgimazeReportTest(unittest.TestCase):
         results = report.order_results(report.load_results(self.path))
         self.assertEqual([item.name for item in results], [names[4], names[3], names[1], names[2], names[0]])
 
-    def test_score_and_tier_boundaries_match_old_rules(self) -> None:
+    def test_score_and_tier_boundaries(self) -> None:
         for steps, solved, tiers, score in (
             (0, False, (0, 0, 0), 0), (10, True, (1, 1, 1), 1),
             (20, True, (1, 1, 0), 0.5), (30, True, (1, 0, 0), 0.2),
@@ -127,15 +124,24 @@ class AgimazeReportTest(unittest.TestCase):
                 self.assertAlmostEqual(report.estimated_cost(record), expected)
                 self.assertEqual(report.estimated_cost(record), arc3_report.estimated_cost(record))
 
-    def test_total_cost_is_appended_without_changing_old_output(self) -> None:
+    def test_markdown_report_includes_sorted_results_total_cost_and_numeric_summary(self) -> None:
         self.write_results([entry("maze2.json", solved=False), entry("maze1.json")])
         self.write_tokens([
             token_record("maze1.json", 1_000_000, 200_000, 100_000),
             token_record("maze2.json", 500_000, 400_000, 20_000),
         ])
         self.assertEqual(report.main([str(self.root)]), 0)
-        old_output = legacy.render_markdown(report.order_results(report.load_results(self.path)))
-        self.assertEqual(self.stdout.getvalue(), old_output + "\ntotal cost: $8.40\n\n0.500 1/1/1 10 8.40\n")
+        self.assertEqual(self.stdout.getvalue(),
+                         "Score1: unsolved labyrinths score `0`. For solved labyrinths, "
+                         "`overrun = max(0, steps/max_steps - 1)` and "
+                         "`score1 = 1/(1 + overrun^2)`; solutions within `max_steps` score `1`.\n\n"
+                         "| name       | steps/max_steps | x5/x2/x1 solved | score1 |\n"
+                         "| ---------- | --------------: | --------------: | -----: |\n"
+                         "| maze1.json |            5/10 |           1/1/1 |  1.000 |\n"
+                         "| maze2.json |            5/10 |           0/0/0 |  0.000 |\n\n"
+                         "x5 solved: 1/2\nx2 solved: 1/2\nx1 solved: 1/2\n"
+                         "total actions: 10\naverage score1: 0.500\n"
+                         "total cost: $8.40\n\n0.500 1/1/1 10 8.40\n")
 
     def test_total_is_rounded_only_after_summing_games(self) -> None:
         self.write_results([entry("first"), entry("second")])
