@@ -6,6 +6,9 @@
 
 ## Code and agents
 
+The exact software version used in this study is archived on
+[Zenodo](https://zenodo.org/records/24032930).
+
 See the [EnvTraverse v0.1 README](../../envtraverse_v0.1/README.md) for framework
 setup and usage.
 

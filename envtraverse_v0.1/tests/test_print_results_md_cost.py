@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from analysis_scripts.arc3 import print_results_md_cost as report
-from analysis_scripts.old_arc3 import print_results_md_cost as legacy
 
 
 def token_record(game: str, input_tokens: int = 0, cached: int = 0, output: int = 0) -> dict:
@@ -108,22 +107,6 @@ class ResultsTest(unittest.TestCase):
             "\nfully solved games: 1/3\nmean per-game RHAE: 50.00%\ntotal cost: $7.10\n"
             "total number of actions: 1625\n")
 
-    def test_output_matches_old_report_with_equivalent_cost_inputs(self) -> None:
-        entries = self.sample_entries()
-        self.write_run(self.runs_dir, entries)
-        for tokens, _ in entries:
-            game = tokens["environment_id"]
-            cost = report.estimated_cost(tokens)
-            (self.runs_dir / f"{game}_cost_estimation.json").write_text(json.dumps({
-                "games": {game: {"estimated_cost_usd": cost}},
-                "totals": {"estimated_cost_usd": cost},
-            }), encoding="utf-8")
-        old_output = io.StringIO()
-        with redirect_stdout(old_output):
-            legacy.print_results_md([self.runs_dir])
-        report.print_results_md([self.runs_dir])
-        self.assertEqual(self.stdout.getvalue(), old_output.getvalue())
-
     def test_reads_only_token_json_and_scorecards_and_does_not_modify_them(self) -> None:
         self.write_run(self.runs_dir, self.sample_entries())
         inputs = {path: path.read_bytes() for path in self.runs_dir.iterdir()}
@@ -158,7 +141,7 @@ class ResultsTest(unittest.TestCase):
         self.assertEqual(report.main([str(self.runs_dir)]), 0)
         self.assertIn("| ls20-specific-version |", self.stdout.getvalue())
 
-    def test_status_uses_old_win_or_1500_step_heuristic(self) -> None:
+    def test_status_uses_win_or_1500_step_heuristic(self) -> None:
         for steps in (1499, 1500, 1501):
             with self.subTest(steps=steps):
                 self.write_run(self.runs_dir, [(token_record("ls20"), scorecard(
@@ -168,7 +151,7 @@ class ResultsTest(unittest.TestCase):
                 self.assertEqual(result.table_row()[-1], "normal termination" if steps >= 1500 else "interrupted")
                 self.assertEqual((result.steps_solved, result.steps_last), (10, steps))
 
-    def test_missing_level_action_breakdown_preserves_old_fallback(self) -> None:
+    def test_missing_level_action_breakdown_falls_back_to_run_actions(self) -> None:
         for state in ("WIN", "NOT_FINISHED"):
             with self.subTest(state=state):
                 card = scorecard("ls20", state=state)
