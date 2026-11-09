@@ -173,7 +173,7 @@ class FFDTests(unittest.TestCase):
         numerical = float(np.min(dx_x * dy_y - dy_x * dx_y))
         self.assertAlmostEqual(ffd.minimum_jacobian(plan, controls, amplitudes), numerical, delta=0.002)
 
-    def test_known_combined_rejections_and_retry_limit(self):
+    def test_known_combined_rejections(self):
         plan = ffd.make_plan((512, 512), 88, 88, ((4, 4), (8, 8)))
         # Seed from test_ffd's grid/A: its first two combined-strong draws fail.
         seed = 13469436960999524731
@@ -187,10 +187,32 @@ class FFDTests(unittest.TestCase):
         accepted = ffd.sample_controls((plan,), ((64, 16),), np.random.default_rng(seed), 0.1)
         for actual, expected in zip(accepted, candidates[2]):
             np.testing.assert_array_equal(actual, expected)
-        with patch.object(ffd, "minimum_jacobian", return_value=-1) as check:
-            with self.assertRaisesRegex(ValueError, "100 attempts"):
-                ffd.sample_controls((plan,), ((64, 16),), np.random.default_rng(seed), 0.1)
-            self.assertEqual(check.call_count, 100)
+
+    def test_sampling_accepts_after_more_than_100_rejections(self):
+        plan = ffd.make_plan((16, 24), 0, 0, ((4, 4), (8, 8)))
+        seed = 42
+        expected_rng = np.random.default_rng(seed)
+        for _ in range(251):
+            expected = tuple(expected_rng.uniform(-1, 1, (*shape, 2)).astype(np.float32)
+                             for shape in plan.grid_shapes)
+        rng = np.random.default_rng(seed)
+        with patch.object(ffd, "minimum_jacobian", side_effect=[-1.0] * 250 + [0.1]) as check:
+            accepted = ffd.sample_controls((plan,), ((4, 1),), rng, 0.1)
+        self.assertEqual(check.call_count, 251)
+        for actual, target in zip(accepted, expected, strict=True):
+            np.testing.assert_array_equal(actual, target)
+        self.assertEqual(rng.bit_generator.state, expected_rng.bit_generator.state)
+
+    def test_sampling_remains_interruptible_after_many_rejections(self):
+        plan = ffd.make_plan((16, 24), 0, 0, ((4, 4), (8, 8)))
+        for interruption in (KeyboardInterrupt(), SystemExit(143)):
+            with self.subTest(interruption=type(interruption).__name__), \
+                 patch.object(ffd, "minimum_jacobian",
+                              side_effect=[-1.0] * 250 + [interruption]) as check:
+                with self.assertRaises(type(interruption)) as raised:
+                    ffd.sample_controls((plan,), ((4, 1),), np.random.default_rng(42), 0.1)
+                self.assertIs(raised.exception, interruption)
+                self.assertEqual(check.call_count, 251)
 
     def test_zero_grids_disabled_ffd_and_zero_amplitude_are_identity(self):
         for parameters in (

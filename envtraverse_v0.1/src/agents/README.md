@@ -12,13 +12,13 @@ agent connects to the framework.
 
 ## Bundled agents
 
-All four use Codex and provide an environment-agnostic client to the LLM.
+The bundled agents use Codex and provide an environment-agnostic client to the LLM.
 
 | Agent | Scope |
 | --- | --- |
 | [agent_v1](agent_v1/) | Environment-agnostic |
 | [agent_v1_01_wstop](agent_v1_01_wstop/) | Environment-agnostic; changes the instruction for returning control |
-| [agent_v1_07_wstop2](agent_v1_07_wstop2/) | Environment-agnostic; alternate instructions for returning control |
+| [agent_v1_08_wstop3](agent_v1_08_wstop3/) | Environment-agnostic; stops when repeated reminders yield no new actions |
 | [test_arc3_agent_v1_02_wstop_wreset](test_arc3_agent_v1_02_wstop_wreset/) | ARC-AGI-3-specific reset management |
 
 The agent controller starts Codex, supplies prompts, and resumes it as needed.

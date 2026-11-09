@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,14 @@ def write_log(path: Path, *messages: str) -> None:
     path.write_text("".join(
         f"2026-09-09 12:00:00 +0000 agent_runner.py: {message}\n"
         for message in messages
+    ), encoding="utf-8")
+
+
+def write_agent_log(path: Path, *events: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(
+        json.dumps({"type": "external_agent_log", **event}) + "\n"
+        for event in events
     ), encoding="utf-8")
 
 
@@ -73,10 +82,92 @@ class RecoveryWarningTest(unittest.TestCase):
         write_log(self.runs_dir / "normal/run/agent_runner.log", "stop condition met; stopping supervisor")
         self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
         self.assertEqual(self.stdout.getvalue(),
-                         "WARNING: a/run/agent_runner.log: 2 recovery attempt(s)\n"
-                         "WARNING: z/run/agent_runner.log: 1 recovery attempt(s)\n"
-                         "Found 3 recovery attempt(s) in 2 of 3 game(s).\n")
+                         "WARNING: a/run/agent_runner.log: 2 recovery attempt(s) (failure: 2)\n"
+                         "WARNING: z/run/agent_runner.log: 1 recovery attempt(s) (failure: 1)\n"
+                         "Found 3 recovery attempt(s) in 2 of 3 game(s).\n"
+                         "Reasons: failure: 3\n")
         self.assertEqual(self.stderr.getvalue(), "")
+
+    def test_groups_restarted_stop_reasons_and_failures_across_games(self) -> None:
+        write_log(self.log, *(f"recovery attempt {i}/10" for i in range(1, 5)))
+        write_agent_log(self.log.with_name("agent.log"),
+                        {"message": "starting agent", "recovery": False},
+                        {"message": "stop condition met", "reason": "no progress after stuck protocol"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "iteration loop failed"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "stop condition met", "reason": "custom stop"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "stop condition met", "reason": "no progress after stuck protocol"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "stop condition met", "reason": "environment is terminal"})
+        other_log = self.runs_dir / "other/run/agent_runner.log"
+        write_log(other_log, "recovery attempt 1/10")
+        # The last stop reason still counts when the restarted agent later crashes.
+        write_agent_log(other_log.with_name("agent.log"),
+                        {"message": "starting agent", "recovery": False},
+                        {"message": "stop condition met", "reason": "no progress after stuck protocol"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "initialization failed"})
+        self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
+        self.assertEqual(self.stdout.getvalue(),
+                         "WARNING: alias/run/agent_runner.log: 4 recovery attempt(s) "
+                         "(custom stop: 1, failure: 1, no progress after stuck protocol: 2)\n"
+                         "WARNING: other/run/agent_runner.log: 1 recovery attempt(s) "
+                         "(no progress after stuck protocol: 1)\n"
+                         "Found 5 recovery attempt(s) in 2 of 2 game(s).\n"
+                         "Reasons: custom stop: 1, failure: 1, no progress after stuck protocol: 3\n")
+        self.assertEqual(self.stderr.getvalue(), "")
+
+    def test_excludes_final_nonterminal_stop_without_another_start(self) -> None:
+        write_log(self.log, "recovery attempt 1/1", "recovery attempt limit reached (1); stopping supervisor")
+        write_agent_log(self.log.with_name("agent.log"),
+                        {"message": "starting agent", "recovery": False},
+                        {"message": "iteration loop failed"},
+                        {"message": "starting agent", "recovery": True},
+                        {"message": "stop condition met", "reason": "no progress after stuck protocol"})
+        self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
+        self.assertIn("(failure: 1)", self.stdout.getvalue())
+        self.assertNotIn("no progress", self.stdout.getvalue())
+
+    def test_ignores_unrelated_records_and_treats_missing_reasons_as_failures(self) -> None:
+        write_log(self.log, "recovery attempt 1/10", "recovery attempt 2/10")
+        agent_log = self.log.with_name("agent.log")
+        write_agent_log(agent_log,
+                        {"message": "starting agent"},
+                        {"type": "item.completed", "message": "stop condition met", "reason": "wrong type"},
+                        {"message": "stop condition met later", "reason": "wrong message"},
+                        {"message": "tool output", "item": {"message": "stop condition met", "reason": "nested"}},
+                        {"message": "stop condition met"},
+                        {"message": "starting agent"},
+                        {"message": "stop condition met", "reason": None},
+                        {"message": "stop condition met", "reason": ""},
+                        {"message": "stop condition met", "reason": " "},
+                        {"message": "stop condition met", "reason": ["invalid"]},
+                        {"message": "starting agent"},
+                        {"message": "stop condition met", "reason": "final stop"},
+                        {"type": "item.completed", "message": "starting agent"},
+                        {"message": "tool output", "item": {"message": "starting agent"}})
+        with agent_log.open("a", encoding="utf-8") as log:
+            log.write('\nnull\n[]\n"starting agent"\nnot JSON\n{"type": "external_agent_log"')
+        self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
+        self.assertEqual(self.stdout.getvalue(),
+                         "WARNING: alias/run/agent_runner.log: 2 recovery attempt(s) (failure: 2)\n"
+                         "Found 2 recovery attempt(s) in 1 of 1 game(s).\n"
+                         "Reasons: failure: 2\n")
+        self.assertEqual(self.stderr.getvalue(), "")
+
+    def test_inconsistent_logs_report_error_instead_of_negative_failures(self) -> None:
+        write_log(self.log, "recovery attempt 1/10")
+        write_agent_log(self.log.with_name("agent.log"),
+                        {"message": "starting agent"},
+                        {"message": "stop condition met", "reason": "no progress"},
+                        {"message": "starting agent"},
+                        {"message": "stop condition met", "reason": "no progress"},
+                        {"message": "starting agent"})
+        self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 1)
+        self.assertIn("More restarted stop reasons than recovery attempts", self.stderr.getvalue())
+        self.assertEqual(self.stdout.getvalue(), "")
 
     def test_clean_run_and_empty_logs_do_not_produce_warnings(self) -> None:
         write_log(self.log, "stop condition met; stopping supervisor")
@@ -101,8 +192,13 @@ class RecoveryWarningTest(unittest.TestCase):
         self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
         self.assertEqual(self.stdout.getvalue(), "No recovery attempts found in 1 agent_runner.log file(s).\n")
 
-    def test_reads_only_runner_logs_and_does_not_modify_inputs(self) -> None:
+    def test_reads_only_runner_and_sibling_agent_logs_and_does_not_modify_inputs(self) -> None:
         write_log(self.log, "recovery attempt 1/10")
+        agent_log = self.log.with_name("agent.log")
+        write_agent_log(agent_log,
+                        {"message": "starting agent"},
+                        {"message": "stop condition met", "reason": "no progress"},
+                        {"message": "starting agent"})
         for name in ("agent.log", "server/server.log", "alias/observations/state.txt"):
             write_log(self.runs_dir / name, "recovery attempt 1/10")
         inputs = {path: path.read_bytes() for path in self.runs_dir.rglob("*") if path.is_file()}
@@ -110,13 +206,13 @@ class RecoveryWarningTest(unittest.TestCase):
         opened = []
 
         def checked_open(path, *args, **kwargs):
-            self.assertEqual(path, self.log)
+            self.assertIn(path, (self.log, agent_log))
             opened.append(path)
             return original_open(path, *args, **kwargs)
 
         with patch.object(Path, "open", checked_open):
             self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 0)
-        self.assertEqual(opened, [self.log])
+        self.assertEqual(opened, [self.log, agent_log])
         self.assertEqual({path: path.read_bytes() for path in self.runs_dir.rglob("*") if path.is_file()}, inputs)
 
     def test_no_logs_and_missing_or_non_directory_inputs_are_errors(self) -> None:
@@ -145,6 +241,16 @@ class RecoveryWarningTest(unittest.TestCase):
         self.assertIn("cannot read", self.stderr.getvalue())
         self.assertEqual(self.stdout.getvalue(), "")
 
+    def test_invalid_agent_log_encoding_reports_its_path_and_continues(self) -> None:
+        write_log(self.log, "recovery attempt 1/10")
+        agent_log = self.log.with_name("agent.log")
+        agent_log.write_bytes(b"\xff")
+        write_log(self.runs_dir / "other/run/agent_runner.log", "recovery attempt 1/10")
+        self.assertEqual(recovery_warning.main([str(self.runs_dir)]), 1)
+        self.assertIn(f"Error reading {agent_log}:", self.stderr.getvalue())
+        self.assertIn("WARNING: other/run/agent_runner.log: 1 recovery attempt(s) (failure: 1)", self.stdout.getvalue())
+        self.assertNotIn("Reasons:", self.stdout.getvalue())
+
     def test_cli_runs_from_another_directory_without_site_packages(self) -> None:
         write_log(self.log, "recovery attempt 1/10")
         result = subprocess.run(
@@ -153,8 +259,9 @@ class RecoveryWarningTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout,
-                         "WARNING: alias/run/agent_runner.log: 1 recovery attempt(s)\n"
-                         "Found 1 recovery attempt(s) in 1 of 1 game(s).\n")
+                         "WARNING: alias/run/agent_runner.log: 1 recovery attempt(s) (failure: 1)\n"
+                         "Found 1 recovery attempt(s) in 1 of 1 game(s).\n"
+                         "Reasons: failure: 1\n")
         self.assertEqual(result.stderr, "")
 
 

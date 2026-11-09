@@ -64,12 +64,13 @@ samples the enlarged RGB image once. Basis and coordinate caching is bounded;
 random control fields are never cached across observations.
 
 The determinant test applies to the summed FFD, before homography. If it fails,
-all active FFD grids are redrawn together, up to 100 attempts. Failure after
-that raises a configuration/runtime error. The test uses analytic spline
-derivatives sampled at pixel centers; it does not prove that the continuous
-field has no folds. With `geometry_refresh: step`, one set of normalized
-controls must pass for every distinct frame shape in the observation. Sampling
-maps are reused for repeated shapes in that observation.
+all active FFD grids are redrawn together until the test passes, with no attempt
+limit. Low acceptance rates can make rendering take arbitrarily long; sampling
+remains interruptible and never relaxes the configured threshold. The test uses
+analytic spline derivatives sampled at pixel centers; it does not prove that
+the continuous field has no folds. With `geometry_refresh: step`, one set of
+normalized controls must pass for every distinct frame shape in the observation.
+Sampling maps are reused for repeated shapes in that observation.
 
 ## Padding
 

@@ -104,6 +104,7 @@ Change the `agent` field in your configuration:
 | --- | --- | --- |
 | Baseline | `agent_v1` | All bundled environments |
 | Stop-and-report | `agent_v1_01_wstop` | All bundled environments |
+| Stop after repeated inactivity | `agent_v1_08_wstop3` | All bundled environments |
 | Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | ARC-AGI-3 adapters that emit `metadata.txt` |
 
 For example, set `agent: agent_v1_01_wstop` to run Stop-and-report with the same
@@ -170,6 +171,7 @@ the `environment` field:
 | [arc3_minimal_raw](../../src/server/environments/arc3_minimal_raw/README.md) | Raw SDK observations and numeric frame arrays in JSON |
 | [arc3_minimal_img_wnoise3](../../src/server/environments/arc3_minimal_img_wnoise3/README.md) | JPEG or PNG images with configurable noise and deformation, plus metadata |
 | [arc3_minimal_img_wnoise3_whighlight2](../../src/server/environments/arc3_minimal_img_wnoise3_whighlight2/README.md) | The same image settings, plus a pixel-highlight action |
+| [arc3_minimal_img_wnoise4](../../src/server/environments/arc3_minimal_img_wnoise4/README.md) | Noisy, deformed images with configurable rotation after each action, plus metadata |
 
 For the first four formats, make a copy of
 [run_config_arc3.yaml](../../run_config_arc3.yaml) and change `environment` to
@@ -185,6 +187,8 @@ fields in disabled groups. Start with the supplied configurations:
   selects images with noise and deformation.
 - [run_config_arc3_minimal_img_wnoise3_whighlight2.yaml](../../run_config_arc3_minimal_img_wnoise3_whighlight2.yaml)
   adds the `highlight_pixel` action and cursor-size setting.
+- [run_config_arc3_minimal_img_wnoise4.yaml](../../run_config_arc3_minimal_img_wnoise4.yaml)
+  adds a rotation schedule before homography and deformation.
 
 For example:
 
@@ -193,11 +197,12 @@ export ARC_API_KEY='your-arc-api-key'
 python3 run_controller.py --run-config run_config_arc3_minimal_img_wnoise3.yaml
 ```
 
-Pass the second configuration to the same command to run the highlight variant.
-Both examples select `agent_v1`, game `ls20`, and non-competition mode. Their
-image settings produce 688×688 JPEG images from a 64×64 board. Coordinates
-always refer to the original board. Highlight actions advance the observation
-index without consuming the game-solving budget.
+Use another listed configuration with the same command to select its variant.
+These configurations select `agent_v1`, game `ls20`, and non-competition mode.
+The v3 examples produce 688×688 JPEG images from a 64×64 board; the v4 example
+produces 896×896 images to accommodate rotation. Coordinates always refer to the
+original board. Highlight actions advance the observation index without consuming
+the game-solving budget.
 
 ### AGI Maze: individual labyrinths
 
