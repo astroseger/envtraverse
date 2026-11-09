@@ -116,17 +116,19 @@ instructions.
 
 Both runners accept an optional `agent_docker_build_args` mapping. Each entry is
 passed as `--build-arg NAME=VALUE` when building the selected agent's Docker image.
-For example, `agent_v1_07_wstop2` supports selecting the Codex CLI version:
+For example, `agent_v1_08_wstop3` supports selecting the Codex CLI version:
 
 ```yaml
-agent: agent_v1_07_wstop2
+agent: agent_v1_08_wstop3
 agent_docker_build_args:
   CODEX_VERSION: "0.154.0"
 ```
 
 The mapping defaults to `{}`, which preserves the selected Dockerfile's defaults.
-For `agent_v1_07_wstop2`, the default Codex version is `0.154.0`. The other bundled
-agents retain their fixed versions and do not currently accept `CODEX_VERSION`.
+The agents `agent_v1`, `agent_v1_01_wstop`, and `agent_v1_08_wstop3` accept
+`CODEX_VERSION` and default to `0.154.0`. The agent
+`test_arc3_agent_v1_02_wstop_wreset` retains its fixed version and does not accept
+`CODEX_VERSION`.
 Use an exact version for reproducible runs.
 
 Names must match `ARG` declarations in the selected Dockerfile and values must be
@@ -260,7 +262,7 @@ To run all 70 Science 0.1 tasks from [run_config_terminal_bench_science_0.1.yaml
 python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
 ```
 
-The Science configuration uses `agent_v1_07_wstop2` with an HTTP read timeout of
+The Science configuration uses `agent_v1_08_wstop3` with an HTTP read timeout of
 36300 seconds and a supervisor inactivity timeout of 39600 seconds. All four
 bundled agents accept these top-level settings; their defaults are 3900 and 7200
 seconds. See the [agent settings](../../src/agents/README.md) for details.

@@ -144,7 +144,7 @@ short timeout for acknowledging cleanup.
 The four bundled agent variants accept top-level `http_read_timeout_seconds`
 and `supervisor_inactivity_timeout_seconds` run-config settings. Their defaults
 are 3900 seconds (65 minutes) and 7200 seconds (two hours). The Science configuration
-selects `agent_v1_07_wstop2` and raises these to 36300 and 39600 seconds. The
+selects `agent_v1_08_wstop3` and raises these to 36300 and 39600 seconds. The
 supervisor measures time without `agent.log` updates, including initialization;
 Harbor continues to enforce the task's own solving and verifier budgets.
 

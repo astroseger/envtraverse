@@ -79,7 +79,7 @@ python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_te
 ```
 
 The supplied [Science configuration](run_config_terminal_bench_science_0.1.yaml) lists the published
-`v0.1.0` tasks using slash-separated IDs. It selects `agent_v1_07_wstop2`, with
+`v0.1.0` tasks using slash-separated IDs. It selects `agent_v1_08_wstop3`, with
 `http_read_timeout_seconds: 36300` (10 hours 5 minutes) and
 `supervisor_inactivity_timeout_seconds: 39600` (11 hours) to accommodate long
 initialization. The Terminal-Bench manager defaults to no socket timeout;
