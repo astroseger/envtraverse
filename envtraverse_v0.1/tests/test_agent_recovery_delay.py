@@ -124,8 +124,8 @@ class WstopRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
     agent_name = "agent_v1_01_wstop"
 
 
-class Wstop2RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
-    agent_name = "agent_v1_07_wstop2"
+class Wstop3RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
+    agent_name = "agent_v1_08_wstop3"
 
 
 class WresetRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
@@ -323,8 +323,8 @@ class WstopRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
     agent_name = "agent_v1_01_wstop"
 
 
-class Wstop2RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
-    agent_name = "agent_v1_07_wstop2"
+class Wstop3RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
+    agent_name = "agent_v1_08_wstop3"
 
 
 class WresetRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):

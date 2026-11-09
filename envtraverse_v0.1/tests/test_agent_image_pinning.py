@@ -118,7 +118,7 @@ class RunImagesTest(unittest.TestCase):
                 paths.run_dir.mkdir()
                 config = dict(
                     games=["counter"], environment=rf.EnvironmentConfig("example", {}, []),
-                    agent="agent_v1_07_wstop2", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
+                    agent="agent_v1_08_wstop3", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
                     agent_docker_build_args={"CODEX_VERSION": "0.153.4"}, paths=paths,
                 )
                 if controller is accounts_controller:

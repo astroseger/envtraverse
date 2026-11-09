@@ -651,10 +651,10 @@ class DockerBuildTest(unittest.TestCase):
             patch.object(rf.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="sha256:" + "1" * 64)),
             patch.object(rf, "log_info"),
         ):
-            rf.build_dockers("example", "agent_v1_07_wstop2", IMAGES,
+            rf.build_dockers("example", "agent_v1_08_wstop3", IMAGES,
                              agent_docker_build_args={"CODEX_VERSION": value})
         self.assertEqual(popen.call_args.args[0], [
-            "bash", str(rf.BUILD_DOCKERS_SCRIPT), "example", "agent_v1_07_wstop2",
+            "bash", str(rf.BUILD_DOCKERS_SCRIPT), "example", "agent_v1_08_wstop3",
             IMAGES.agent, IMAGES.server, IMAGES.proxy, "--agent-build-arg", f"CODEX_VERSION={value}",
         ])
 
@@ -682,17 +682,18 @@ bash "$@"
 
     def test_build_script_passes_overrides_only_to_agent_with_either_tag_mode(self) -> None:
         value = "0.153.4 $HOME $(printf unexpected) `printf unexpected` spaces=preserved\nnext line"
-        for tags in ([], [IMAGES.agent, IMAGES.server, IMAGES.proxy]):
-            with self.subTest(tags=tags):
-                result = self.run_build_script("example", "agent_v1_07_wstop2", *tags,
-                                               "--agent-build-arg", f"CODEX_VERSION={value}")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                commands = [command.split("\0") for command in result.stdout.split("\0\0") if command]
-                self.assertEqual(len(commands), 3)
-                self.assertIn(f"CODEX_VERSION={value}", commands[0])
-                self.assertNotIn(f"CODEX_VERSION={value}", commands[1] + commands[2])
-                self.assertIn(f"USER_ID={os.getuid()}", commands[0])
-                self.assertIn(f"GROUP_ID={os.getgid()}", commands[0])
+        for agent in ("agent_v1", "agent_v1_01_wstop", "agent_v1_08_wstop3"):
+            for tags in ([], [IMAGES.agent, IMAGES.server, IMAGES.proxy]):
+                with self.subTest(agent=agent, tags=tags):
+                    result = self.run_build_script("example", agent, *tags,
+                                                  "--agent-build-arg", f"CODEX_VERSION={value}")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    commands = [command.split("\0") for command in result.stdout.split("\0\0") if command]
+                    self.assertEqual(len(commands), 3)
+                    self.assertIn(f"CODEX_VERSION={value}", commands[0])
+                    self.assertNotIn(f"CODEX_VERSION={value}", commands[1] + commands[2])
+                    self.assertIn(f"USER_ID={os.getuid()}", commands[0])
+                    self.assertIn(f"GROUP_ID={os.getgid()}", commands[0])
 
     def test_build_script_accepts_multiple_generic_arguments_including_empty_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -728,10 +729,11 @@ bash "$@"
                      ("", "BAD-NAME", "CODEX_VERSION\n", "USER_ID", "GROUP_ID", "CODEX_VERISON", "codex_version"))
         for args in cases:
             with self.subTest(args=args):
-                result = self.run_build_script("example", "agent_v1_07_wstop2", *args)
+                result = self.run_build_script("example", "agent_v1_08_wstop3", *args)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(result.stdout, "")
-        result = self.run_build_script("example", "agent_v1", "--agent-build-arg", "CODEX_VERSION=0.153.4")
+        result = self.run_build_script("example", "test_arc3_agent_v1_02_wstop_wreset",
+                                       "--agent-build-arg", "CODEX_VERSION=0.153.4")
         self.assertEqual(result.returncode, 2)
         self.assertIn("does not declare ARG CODEX_VERSION", result.stderr)
 
