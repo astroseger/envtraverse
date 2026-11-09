@@ -18,7 +18,7 @@ AGENT_PATH = ROOT / "agent.py"
 RUNNER_LOG_FILE = ROOT / "agent_runner.log"
 
 # Environment initialization may wait for a long Docker build without agent.log output.
-RECOVERY_LOG_STALE_SECONDS = 2 * 60 * 60.0
+DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60.0
 MAX_RECOVERY_ATTEMPTS = 10
 POLL_SECONDS = 5.0
 TERMINATE_GRACE_SECONDS = 30.0
@@ -111,7 +111,10 @@ def log_idle_seconds(started_at: float) -> float:
     return time.time() - last_activity_at
 
 
-def wait_for_agent(process: subprocess.Popen[bytes], label: str) -> str:
+def wait_for_agent(
+    process: subprocess.Popen[bytes], label: str, *,
+    inactivity_timeout_seconds: float = DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS,
+) -> str:
     started_at = time.time()
     while True:
         return_code = process.poll()
@@ -120,7 +123,7 @@ def wait_for_agent(process: subprocess.Popen[bytes], label: str) -> str:
             return "exited"
 
         idle_seconds = log_idle_seconds(started_at)
-        if idle_seconds >= RECOVERY_LOG_STALE_SECONDS:
+        if idle_seconds >= inactivity_timeout_seconds:
             if inspect_and_should_stop():
                 log("agent_runner.py: stop condition met during stale-log check; stopping supervisor")
                 terminate_agent(process)
@@ -147,6 +150,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--model", default="gpt-5.5")
     parser.add_argument("--reasoning-effort", default="medium")
     parser.add_argument(
+        "--supervisor-inactivity-timeout-seconds",
+        type=float,
+        default=DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS,
+        help="Seconds without agent.log updates before stopping the agent (default: 7200).",
+    )
+    parser.add_argument(
         "--recovery-delay-seconds",
         type=float,
         default=0.0,
@@ -159,6 +168,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Maximum number of recovery attempts; 0 disables recovery (default: 10).",
     )
     args = parser.parse_args(argv)
+    if (not math.isfinite(args.supervisor_inactivity_timeout_seconds)
+            or args.supervisor_inactivity_timeout_seconds <= 0):
+        parser.error("--supervisor-inactivity-timeout-seconds must be a finite, positive number of seconds")
     if not math.isfinite(args.recovery_delay_seconds) or args.recovery_delay_seconds < 0:
         parser.error("--recovery-delay-seconds must be a finite, non-negative number of seconds")
     if args.max_recovery_attempts < 0:
@@ -179,7 +191,9 @@ def main(argv: list[str] | None = None) -> int:
                 reasoning_effort=args.reasoning_effort,
             )
         )
-        master_status = wait_for_agent(master_process, "master")
+        master_status = wait_for_agent(
+            master_process, "master", inactivity_timeout_seconds=args.supervisor_inactivity_timeout_seconds,
+        )
         if master_status == "stop":
             return 0
 
@@ -223,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
                     reasoning_effort=args.reasoning_effort,
                 )
             )
-            recovery_status = wait_for_agent(recovery_process, "recovery")
+            recovery_status = wait_for_agent(
+                recovery_process, "recovery", inactivity_timeout_seconds=args.supervisor_inactivity_timeout_seconds,
+            )
             if recovery_status == "stop":
                 return 0
 
