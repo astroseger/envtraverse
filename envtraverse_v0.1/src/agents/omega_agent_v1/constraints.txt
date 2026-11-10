@@ -1,0 +1,3 @@
+# Keep Ubuntu scientific extensions on their NumPy 1.x ABI.
+numpy==1.26.4
+setuptools>=71,<82

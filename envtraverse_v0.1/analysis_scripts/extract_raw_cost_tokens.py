@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -15,6 +16,70 @@ else:
 
 
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens")
+OMEGA_USAGE = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|\s*INFO\s*\|\s*lib_llm_ext\s*\|\s*"
+    r"\[LLM_USAGE\] provider=ChatGPT(?:\s+(?P<fields>.*))?$"
+)
+
+
+def detect_log_format(log_path: Path) -> str:
+    """Prefer Codex events, even if Omega usage appears earlier in the log."""
+    has_omega_usage = False
+    with log_path.open(encoding="utf-8") as log:
+        for raw_line in log:
+            line = raw_line.strip()
+            if line.startswith("{"):
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    # Leave diagnostics to the selected parser.
+                    continue
+                if event.get("type") in ("thread.started", "turn.completed"):
+                    return "codex"
+            if OMEGA_USAGE.fullmatch(raw_line.rstrip("\r\n")) is not None:
+                has_omega_usage = True
+    return "omega_chatgpt" if has_omega_usage else "unknown"
+
+
+def extract_omega_chatgpt_token_counts(log_path: Path) -> dict[str, int]:
+    """Sum reported per-response usage from Omega's canonical agent.log.
+
+    Cached input and reasoning output are already included in their respective
+    totals. Requests without usage reports cannot be reconstructed from this log.
+    """
+    totals = dict.fromkeys(TOKEN_FIELDS, 0)
+    source_fields = ("input_tokens", "cached_tokens", "output_tokens")
+    with log_path.open(encoding="utf-8") as log:
+        for line_number, raw_line in enumerate(log, start=1):
+            match = OMEGA_USAGE.fullmatch(raw_line.rstrip("\r\n"))
+            if match is None:
+                continue
+            location = f"{log_path}:{line_number}"
+            fields = {}
+            for item in (match.group("fields") or "").split():
+                key, separator, value = item.partition("=")
+                if not separator or not key or key in fields:
+                    raise ValueError(f"{location}: malformed or duplicate Omega usage field {item!r}")
+                fields[key] = value
+            for source, target in zip(source_fields, TOKEN_FIELDS):
+                value = fields.get(source)
+                if value is None or value == "None":
+                    print(
+                        f"Warning: {location}: Omega {source} unavailable; counting zero for this field",
+                        file=sys.stderr,
+                    )
+                    continue
+                if re.fullmatch(r"[0-9]+", value) is None:
+                    raise ValueError(f"{location}: {source} must be a non-negative integer")
+                totals[target] += int(value)
+    return totals
+
+
+def extract_agent_token_counts(log_path: Path) -> dict[str, int]:
+    """Dispatch per game; unknown formats retain the existing Codex behavior."""
+    if detect_log_format(log_path) == "omega_chatgpt":
+        return extract_omega_chatgpt_token_counts(log_path)
+    return extract_token_counts(log_path)
 
 
 def extract_token_counts(log_path: Path) -> dict[str, int]:
@@ -87,7 +152,7 @@ def extract_raw_cost_tokens(run_folder: str | Path) -> list[dict[str, Any]]:
             continue
         game_folder = log_path.parent.parent
         records.append({
-            **extract_token_counts(game_folder / "run" / "agent.log"),
+            **extract_agent_token_counts(game_folder / "run" / "agent.log"),
             "environment_id": environment_id,
             "run_folder": str(game_folder),
         })
