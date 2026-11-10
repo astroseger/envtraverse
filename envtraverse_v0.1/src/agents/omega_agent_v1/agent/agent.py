@@ -81,11 +81,9 @@ def initialize_omega_memory() -> None:
 
 def build_initial_prompt(initial_client_output: str) -> str:
     main_prompt = (PROMPT_DIR / "main_prompt.md").read_text(encoding="utf-8").strip()
-    continuation = (PROMPT_DIR / "continuation_string.txt").read_text(encoding="utf-8").strip()
     if not main_prompt:
         raise ValueError("main_prompt.md must not be empty")
-    return (main_prompt + "\n\n" + continuation
-            + "\n\nThe initial output of the game client:\n" + initial_client_output)
+    return main_prompt + "\n\nThe initial output of the game client:\n" + initial_client_output
 
 
 def write_runtime_files(initial_prompt: str) -> tuple[Path, Path, Path]:

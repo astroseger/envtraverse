@@ -157,12 +157,12 @@ controllers continue to use Codex account authentication.
 
 `agent.py` starts the session with the existing `/client/client.py`, verifies that
 the server wrote `/observations/environment_description.md`, and constructs the
-initial prompt from `main_prompt.md`, `continuation_string.txt`, and the initial
-client output. A local channel delivers that prompt once, then returns no new
-input. Omega continues using its existing autonomous loop.
+initial prompt from `main_prompt.md` and the initial client output. A local
+channel delivers that prompt once, then returns no new input. Omega continues
+using its existing autonomous loop.
 
-The `agent/client` files and initial prompt files are copied unchanged from
-`agent_v1`. No task-specific environment strategy is added.
+The `agent/client` files are copied unchanged from `agent_v1`. All initial task
+instructions, including when to stop, are kept in `main_prompt.md`.
 
 The task output directory contains:
 

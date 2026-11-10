@@ -23,3 +23,7 @@ You start in `/home/user/run/agent_run`, which is your workspace.
 Use your workspace however you find most effective. You may create and modify files and directories, and write any scripts or utilities you need.
 
 If useful, simplify access to the observation data by creating helper index files, access scripts, or a separate directory inside your workspace containing copies of observations. You may automate copying new observations into that directory and modify those copies as needed.
+
+# When to stop
+
+Continue working until you have completed your task.

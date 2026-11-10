@@ -219,8 +219,8 @@ class RuntimeTest(unittest.TestCase):
         self.description = self.observations / "environment_description.md"
         self.prompts = self.root / "prompts"
         self.prompts.mkdir()
-        (self.prompts / "main_prompt.md").write_text("Read the environment goal and solve it.")
-        (self.prompts / "continuation_string.txt").write_text("Continue until completed.")
+        (self.prompts / "main_prompt.md").write_text(
+            "Read the environment goal and solve it.\n\nContinue until completed.")
         (self.root / "run_task.metta").write_text("; local channel adapter")
         (self.root / "prompt_channel.py").write_text("# local channel adapter")
         for name, value in {
