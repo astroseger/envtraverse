@@ -264,6 +264,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--inactivity-timeout-seconds", type=positive_seconds,
         help="Stop after this many idle seconds; initialization and moves are excluded. Disabled by default.",
     )
+    parser.add_argument(
+        "--terminal-grace-seconds", type=positive_seconds,
+        help="Stop this many seconds after the first terminal response completes. Disabled by default.",
+    )
     return parser
 
 
@@ -299,15 +303,32 @@ def main(argv: list[str] | None = None) -> int:
         # finishes sending before the loop exits and closes the environment.
         with make_server(args.host, args.port, app, threaded=False) as http:
             game.reset_inactivity_timer()
+            terminal_deadline: float | None = None
             LOGGER.info(
                 "starting server environment=%s host=%s port=%s log=%s",
                 args.environment, args.host, http.server_port, SERVER_LOG_PATH,
             )
-            while not game.failed and not game.check_inactivity_timeout():
-                # Wake at the idle deadline even if no request arrives. Requests
-                # run synchronously and successful operations renew the deadline.
-                http.timeout = (None if game.inactivity_deadline is None else
-                                min(1.0, max(0.0, game.inactivity_deadline - time.monotonic())))
+            while not game.failed:
+                now = time.monotonic()
+                # handle_request() finishes the response before returning here.
+                # Arm once, including for a terminal initialization response.
+                if game.terminal and args.terminal_grace_seconds is not None and terminal_deadline is None:
+                    terminal_deadline = now + args.terminal_grace_seconds
+                    LOGGER.info("terminal grace period started: %s seconds game_id=%s",
+                                args.terminal_grace_seconds, game.game_id)
+                deadline = min(
+                    (value for value in (game.inactivity_deadline, terminal_deadline) if value is not None),
+                    default=None,
+                )
+                if deadline is not None and now >= deadline:
+                    if deadline == terminal_deadline:
+                        LOGGER.info("server terminal grace period expired after %s seconds; shutting down game_id=%s",
+                                    args.terminal_grace_seconds, game.game_id)
+                    else:
+                        game.check_inactivity_timeout()
+                    break
+                # Both guards run between requests and wake even without traffic.
+                http.timeout = None if deadline is None else min(1.0, max(0.0, deadline - now))
                 http.handle_request()
     except Exception:
         LOGGER.exception("server failed")

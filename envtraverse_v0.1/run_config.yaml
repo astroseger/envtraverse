@@ -1,6 +1,7 @@
 agent: agent_v1
 environment: example
 server_inactivity_timeout_seconds: 1800  # 30 minutes between operations
+server_terminal_grace_seconds: 600  # 10 minutes after a terminal response
 
 games:
   - counter

@@ -34,12 +34,14 @@ class RunConfig:
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
     paths: rf.RunPaths = rf.RunPaths()
     server_inactivity_timeout_seconds: float | None = None
+    server_terminal_grace_seconds: float | None = None
 
 
 def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
     loaded_config = rf.load_run_config(path)
     runner = rf.parse_runner_config(loaded_config, path)
-    server_inactivity_timeout_seconds = rf.parse_server_inactivity_timeout(loaded_config, path)
+    server_inactivity_timeout_seconds = rf.parse_optional_seconds(loaded_config, path, "server_inactivity_timeout_seconds")
+    server_terminal_grace_seconds = rf.parse_optional_seconds(loaded_config, path, "server_terminal_grace_seconds")
     environment = rf.parse_environment_config(loaded_config, path, paths=paths)
     games = rf.parse_string_list(loaded_config, "games", path)
     agent = rf.parse_agent_name(loaded_config, path)
@@ -54,6 +56,7 @@ def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunCo
         agent_docker_build_args=agent_docker_build_args,
         paths=paths,
         server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
+        server_terminal_grace_seconds=server_terminal_grace_seconds,
     )
 
 
@@ -181,6 +184,7 @@ def run_scheduler(
         launch_agent=launch_agent,
         paths=config.paths,
         server_inactivity_timeout_seconds=config.server_inactivity_timeout_seconds,
+        server_terminal_grace_seconds=config.server_terminal_grace_seconds,
     )
 
 

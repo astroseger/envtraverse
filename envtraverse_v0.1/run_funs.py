@@ -218,11 +218,11 @@ def parse_runner_config(config: dict[str, object], path: Path) -> RunnerConfig:
     return RunnerConfig(**limits)
 
 
-def parse_server_inactivity_timeout(config: dict[str, object], path: Path) -> float | None:
-    value = config.get("server_inactivity_timeout_seconds")
+def parse_optional_seconds(config: dict[str, object], path: Path, key: str) -> float | None:
+    value = config.get(key)
     if value is None:
         return None
-    message = f"server_inactivity_timeout_seconds in {path} must be a positive finite number or null"
+    message = f"{key} in {path} must be a positive finite number or null"
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise RuntimeError(message)
     try:
@@ -755,6 +755,7 @@ def docker_server_command(
     image: str,
     paths: RunPaths = RunPaths(),
     server_inactivity_timeout_seconds: float | None = None,
+    server_terminal_grace_seconds: float | None = None,
 ) -> list[str]:
     command = [
         "docker", "run", "--rm", "--pull=never",
@@ -787,6 +788,8 @@ def docker_server_command(
     ])
     if server_inactivity_timeout_seconds is not None:
         command.extend(["--inactivity-timeout-seconds", str(server_inactivity_timeout_seconds)])
+    if server_terminal_grace_seconds is not None:
+        command.extend(["--terminal-grace-seconds", str(server_terminal_grace_seconds)])
     return command
 
 
@@ -801,11 +804,13 @@ def start_server(
     image: str,
     paths: RunPaths = RunPaths(),
     server_inactivity_timeout_seconds: float | None = None,
+    server_terminal_grace_seconds: float | None = None,
 ) -> RunningContainer:
     verify_environment_variables(environment)
     command = docker_server_command(
         container_name, internet_network, internal_network, environment, game_alias, game_id, image=image, paths=paths,
         server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
+        server_terminal_grace_seconds=server_terminal_grace_seconds,
     )
     log_info(
         "starting %s server for game %s as alias %s; container: %s",
@@ -902,6 +907,7 @@ def run_scheduler(
     launch_agent: Callable[[str, str, str], RunningContainer],
     paths: RunPaths = RunPaths(),
     server_inactivity_timeout_seconds: float | None = None,
+    server_terminal_grace_seconds: float | None = None,
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
@@ -960,6 +966,7 @@ def run_scheduler(
                         server_name, container_names.internet_network, container_names.internal_network,
                         environment, alias, game, image=images.server, paths=paths,
                         server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
+                        server_terminal_grace_seconds=server_terminal_grace_seconds,
                     )
                     running[slot] = RunningGame(
                         game, alias, server, time.monotonic() + SERVER_START_TIMEOUT_SECONDS,

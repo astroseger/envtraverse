@@ -78,6 +78,25 @@ Startup exits and failures remain errors; a clean exit does not imply a successf
 benchmark result. Terminal-Bench submits a prepared task for grading on close,
 or preserves grading already in progress. Its host runtime finishes that work.
 
+### Server terminal grace period
+
+The optional top-level `server_terminal_grace_seconds` setting starts a fixed
+shutdown deadline after the server finishes its first terminal response, from
+either initialization or a move. The supplied `run_config.yaml` sets it to `600`
+(10 minutes). Omit it or use `null` to disable it; otherwise it must be a positive
+finite number.
+
+During the grace period, clients can read the cached terminal observation and
+environment description. Further actions keep returning the existing terminal
+error without calling the environment. Requests do not extend the deadline.
+The server checks expiry between requests and lets an in-progress response
+finish before cleaning up and exiting. If both guards are enabled, the earlier
+deadline triggers shutdown through the same cleanup and controller behavior
+described above.
+
+The timer uses terminal state already received by the server. It does not poll
+the environment for asynchronous completion, including Terminal-Bench timeouts.
+
 ## Choose a run root
 
 All three controllers accept `--run-root`. Put the experiment's configuration and

@@ -110,6 +110,7 @@ class SharedSchedulerTest(unittest.TestCase):
                 self.names.servers[game], self.names.internet_network, self.names.internal_network,
                 self.environment, alias, game, image=self.images.server, paths=rf.RunPaths(),
                 server_inactivity_timeout_seconds=None,
+                server_terminal_grace_seconds=None,
             )
             self.prepare.assert_any_call(alias, paths=rf.RunPaths())
             self.assert_pair_stopped(game)
