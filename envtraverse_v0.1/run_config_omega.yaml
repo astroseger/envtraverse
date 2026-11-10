@@ -1,0 +1,17 @@
+agent: omega_agent_v1
+environment: example
+server_inactivity_timeout_seconds: 1800  # 30 minutes between operations
+server_terminal_grace_seconds: 10 # 10 seconds because omega will not stop by itself 
+
+games:
+  - counter
+
+omega_accounts: [omega01]
+model: gpt-6.1-terra
+reasoning_effort: max
+max_new_input_loops: 10000000
+
+runner:
+  container_memory_gib: 16
+  process_data_soft_limit_gib: 8
+  process_data_hard_limit_gib: 8

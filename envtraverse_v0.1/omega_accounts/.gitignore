@@ -1,0 +1,15 @@
+# Account folders and credential files must stay local. Track only tooling.
+/*
+!/.gitignore
+!/Dockerfile
+!/build_docker.sh
+!/prepare_account.sh
+!/check_account.sh
+!/README.md
+!/tests/
+/tests/__pycache__/
+
+# Also protect auth files if accidentally placed among tracked tooling.
+**/chatgpt.json
+**/chatgpt.json.lock
+**/.chatgpt-*
