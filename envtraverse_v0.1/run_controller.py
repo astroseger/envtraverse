@@ -26,11 +26,13 @@ class RunConfig:
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
     paths: rf.RunPaths = rf.RunPaths()
+    server_inactivity_timeout_seconds: float | None = None
 
 
 def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
     loaded_config = rf.load_run_config(path)
     runner = rf.parse_runner_config(loaded_config, path)
+    server_inactivity_timeout_seconds = rf.parse_server_inactivity_timeout(loaded_config, path)
     environment = rf.parse_environment_config(loaded_config, path, paths=paths)
     accounts = rf.parse_string_list(loaded_config, "codex_accounts", path)
     games = rf.parse_string_list(loaded_config, "games", path)
@@ -56,6 +58,7 @@ def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunCo
         runner=runner,
         agent_docker_build_args=agent_docker_build_args,
         paths=paths,
+        server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
     )
 
 
@@ -230,6 +233,7 @@ def run_scheduler(
         slots=config.accounts,
         launch_agent=launch_agent,
         paths=config.paths,
+        server_inactivity_timeout_seconds=config.server_inactivity_timeout_seconds,
     )
 
 

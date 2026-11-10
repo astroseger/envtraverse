@@ -7,10 +7,12 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import signal
 import sys
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -61,7 +63,10 @@ def step_payload(step_index: int, observation: Observation) -> dict[str, Any]:
 class GameServer:
     """One manager, one start attempt, and one cached session."""
 
-    def __init__(self, manager: EnvironmentManager, *, game_id: str, game_alias: str) -> None:
+    def __init__(
+        self, manager: EnvironmentManager, *, game_id: str, game_alias: str,
+        inactivity_timeout_seconds: float | None = None,
+    ) -> None:
         self.manager = manager
         self.game_id = game_id
         self.game_alias = game_alias
@@ -73,6 +78,24 @@ class GameServer:
         self.last_step: dict[str, Any] | None = None
         self.failed = False
         self.stopped = False
+        self.inactivity_timeout_seconds = inactivity_timeout_seconds
+        self.inactivity_expired = False
+        self.inactivity_deadline: float | None = None
+        self.reset_inactivity_timer()
+
+    def reset_inactivity_timer(self) -> None:
+        if self.inactivity_timeout_seconds is not None:
+            self.inactivity_deadline = time.monotonic() + self.inactivity_timeout_seconds
+
+    def check_inactivity_timeout(self) -> bool:
+        if (not self.inactivity_expired and self.inactivity_deadline is not None
+                and time.monotonic() >= self.inactivity_deadline):
+            self.inactivity_expired = True
+            LOGGER.info(
+                "server inactivity timeout after %s seconds; shutting down game_id=%s",
+                self.inactivity_timeout_seconds, self.game_id,
+            )
+        return self.inactivity_expired
 
     def start(self, game_alias: Any) -> dict[str, Any]:
         if self.start_attempted or game_alias != self.game_alias:
@@ -102,6 +125,8 @@ class GameServer:
             "started session token=%s requested_game_id=%s game_id=%s",
             self.token, self.game_alias, self.game_id,
         )
+        # Initialization may take longer than the entire idle budget.
+        self.reset_inactivity_timer()
         return deepcopy(self.last_step)
 
     def require_token(self, token: str | None) -> None:
@@ -129,6 +154,8 @@ class GameServer:
             "applied action session=%s action=%s step_index=%s",
             self.token, action, self.step_index,
         )
+        # Only time between operations counts as inactivity, never time in move().
+        self.reset_inactivity_timer()
         return deepcopy(self.last_step)
 
     def stop(self) -> None:
@@ -151,7 +178,7 @@ def create_app(game: GameServer) -> Flask:
     @app.before_request
     def log_request() -> Any:
         LOGGER.info("%s %s from %s", request.method, request.path, request.remote_addr)
-        if game.failed or game.stopped:
+        if game.failed or game.stopped or game.check_inactivity_timeout():
             return jsonify({"error": "Server is shutting down."}), 503
         return None
 
@@ -218,6 +245,13 @@ def nonempty(value: str) -> str:
     return value
 
 
+def positive_seconds(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("must be a positive finite number of seconds")
+    return seconds
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve one game run.")
     parser.add_argument("--environment", required=True, choices=available_environments())
@@ -226,6 +260,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=SERVER_HOST)
     parser.add_argument("--port", type=int, default=SERVER_PORT)
     parser.add_argument("--parameters", default="{}", help="Environment parameters as a JSON object.")
+    parser.add_argument(
+        "--inactivity-timeout-seconds", type=positive_seconds,
+        help="Stop after this many idle seconds; initialization and moves are excluded. Disabled by default.",
+    )
     return parser
 
 
@@ -252,16 +290,24 @@ def main(argv: list[str] | None = None) -> int:
     game: GameServer | None = None
     try:
         manager = manager_class(parameters)
-        game = GameServer(manager, game_id=args.game_id, game_alias=args.game_alias)
+        game = GameServer(
+            manager, game_id=args.game_id, game_alias=args.game_alias,
+            inactivity_timeout_seconds=args.inactivity_timeout_seconds,
+        )
         app = create_app(game)
         # All backend calls and cleanup happen on this thread. A fatal response
         # finishes sending before the loop exits and closes the environment.
         with make_server(args.host, args.port, app, threaded=False) as http:
+            game.reset_inactivity_timer()
             LOGGER.info(
                 "starting server environment=%s host=%s port=%s log=%s",
                 args.environment, args.host, http.server_port, SERVER_LOG_PATH,
             )
-            while not game.failed:
+            while not game.failed and not game.check_inactivity_timeout():
+                # Wake at the idle deadline even if no request arrives. Requests
+                # run synchronously and successful operations renew the deadline.
+                http.timeout = (None if game.inactivity_deadline is None else
+                                min(1.0, max(0.0, game.inactivity_deadline - time.monotonic())))
                 http.handle_request()
     except Exception:
         LOGGER.exception("server failed")

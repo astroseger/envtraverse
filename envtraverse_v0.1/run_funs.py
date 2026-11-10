@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
+import math
 import os
 import re
 import subprocess
@@ -215,6 +216,22 @@ def parse_runner_config(config: dict[str, object], path: Path) -> RunnerConfig:
             "runner.process_data_hard_limit_gib"
         )
     return RunnerConfig(**limits)
+
+
+def parse_server_inactivity_timeout(config: dict[str, object], path: Path) -> float | None:
+    value = config.get("server_inactivity_timeout_seconds")
+    if value is None:
+        return None
+    message = f"server_inactivity_timeout_seconds in {path} must be a positive finite number or null"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(message)
+    try:
+        seconds = float(value)
+    except OverflowError:
+        raise RuntimeError(message) from None
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise RuntimeError(message)
+    return seconds
 
 
 def agent_memory_args(runner: RunnerConfig) -> list[str]:
@@ -737,6 +754,7 @@ def docker_server_command(
     *,
     image: str,
     paths: RunPaths = RunPaths(),
+    server_inactivity_timeout_seconds: float | None = None,
 ) -> list[str]:
     command = [
         "docker", "run", "--rm", "--pull=never",
@@ -767,6 +785,8 @@ def docker_server_command(
         "--game-alias", game_alias,
         "--parameters", json.dumps(parameters, allow_nan=False),
     ])
+    if server_inactivity_timeout_seconds is not None:
+        command.extend(["--inactivity-timeout-seconds", str(server_inactivity_timeout_seconds)])
     return command
 
 
@@ -780,10 +800,12 @@ def start_server(
     *,
     image: str,
     paths: RunPaths = RunPaths(),
+    server_inactivity_timeout_seconds: float | None = None,
 ) -> RunningContainer:
     verify_environment_variables(environment)
     command = docker_server_command(
         container_name, internet_network, internal_network, environment, game_alias, game_id, image=image, paths=paths,
+        server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
     )
     log_info(
         "starting %s server for game %s as alias %s; container: %s",
@@ -879,6 +901,7 @@ def run_scheduler(
     slots: Sequence[str],
     launch_agent: Callable[[str, str, str], RunningContainer],
     paths: RunPaths = RunPaths(),
+    server_inactivity_timeout_seconds: float | None = None,
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
@@ -936,6 +959,7 @@ def run_scheduler(
                     server = start_server(
                         server_name, container_names.internet_network, container_names.internal_network,
                         environment, alias, game, image=images.server, paths=paths,
+                        server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
                     )
                     running[slot] = RunningGame(
                         game, alias, server, time.monotonic() + SERVER_START_TIMEOUT_SECONDS,
@@ -950,8 +974,17 @@ def run_scheduler(
                     break
                 server_code = game.server.process.poll()
                 if server_code is not None:
-                    log_info("server for game %s stopped unexpectedly with exit code %s", game.game, server_code)
-                    failed = True
+                    if server_code == 0 and game.agent is not None:
+                        agent_code = game.agent.process.poll()
+                        if agent_code is None:
+                            log_info("server for game %s exited cleanly before agent; stopping agent", game.game)
+                        else:
+                            log_info("server for game %s exited cleanly", game.game)
+                            log_info("game %s in slot %s stopped with exit code %s", game.game, slot, agent_code)
+                            failed |= agent_code != 0
+                    else:
+                        log_info("server for game %s stopped unexpectedly with exit code %s", game.game, server_code)
+                        failed = True
                 elif game.agent is None:
                     if time.monotonic() >= game.startup_deadline:
                         log_info("server startup timed out for game %s", game.game)

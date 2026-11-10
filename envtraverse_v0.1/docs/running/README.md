@@ -56,6 +56,28 @@ Rename or archive an existing `run/` in the selected root before another
 experiment. Passing a different configuration path alone does not change this
 output location. For long experiments, use `tmux` or `screen`.
 
+### Server inactivity timeout
+
+The optional top-level `server_inactivity_timeout_seconds` setting applies to
+every game server, for any agent or environment. The supplied `run_config.yaml`
+sets it to `1800` (30 minutes). Omit it or use `null` to disable it; otherwise it
+must be a positive finite number.
+
+The timer starts when the HTTP server is ready and resets **after** successful
+environment initialization and **after** each successful move. Initialization
+and moves can run longer than the timeout: a ten-hour initialization with a
+two-hour timeout still gets two full idle hours afterward. Health checks,
+cached-state reads, and rejected actions do not reset the timer. It remains
+active after a terminal observation, but does not interrupt an operation or
+HTTP request that is still running.
+
+On expiry the server logs the reason, calls the environment's `stop()`, and exits
+with code `0` if cleanup succeeds. The controller accepts a clean server exit
+after agent launch and stops any remaining agent, with Docker's kill fallback.
+Startup exits and failures remain errors; a clean exit does not imply a successful
+benchmark result. Terminal-Bench submits a prepared task for grading on close,
+or preserves grading already in progress. Its host runtime finishes that work.
+
 ## Choose a run root
 
 All three controllers accept `--run-root`. Put the experiment's configuration and

@@ -108,9 +108,10 @@ class SharedSchedulerTest(unittest.TestCase):
         for alias, game in self.mapping.items():
             self.start_server.assert_any_call(
                 self.names.servers[game], self.names.internet_network, self.names.internal_network,
-                self.environment, alias, game, image=self.images.server,
+                self.environment, alias, game, image=self.images.server, paths=rf.RunPaths(),
+                server_inactivity_timeout_seconds=None,
             )
-            self.prepare.assert_any_call(alias)
+            self.prepare.assert_any_call(alias, paths=rf.RunPaths())
             self.assert_pair_stopped(game)
         self.assertEqual(self.start_server.call_count, 3)
         # Once ready, only process exit is checked; busy game servers are never health-probed.
@@ -173,6 +174,34 @@ class SharedSchedulerTest(unittest.TestCase):
         self.assertEqual(self.run_scheduler(), 1)
         self.assertEqual([entry[3] for entry in self.launches], ["second", "third"])
         self.assert_pair_stopped("first", agent=False)
+
+    def test_clean_server_exit_stops_running_agent_and_reuses_slot_without_failure(self):
+        self.finish_at["first"] = 99
+        self.server_exits["first"] = (1, 0)
+        original_stop = self.stop_container.side_effect
+
+        def stop(name, *args):
+            original_stop(name, *args)
+            if name == self.names.agents["first"]:
+                # The agent's exit caused by deliberate termination is not a run failure.
+                self.finish_at["first"] = self.tick
+                self.exit_codes["first"] = 137
+
+        self.stop_container.side_effect = stop
+        self.assertEqual(self.run_scheduler(), 0)
+        self.assertEqual(self.launches[1], (2, "worker", "alias-second", "second"))
+        self.log.assert_any_call("server for game %s exited cleanly before agent; stopping agent", "first")
+        self.assert_pair_stopped("first")
+        self.assert_common_cleanup()
+
+    def test_clean_server_exit_preserves_an_already_failed_agent(self):
+        self.finish_at["first"] = 1
+        self.exit_codes["first"] = 17
+        self.server_exits["first"] = (1, 0)
+        self.assertEqual(self.run_scheduler(), 1)
+        self.log.assert_any_call("game %s in slot %s stopped with exit code %s", "first", "worker", 17)
+        self.assert_pair_stopped("first")
+        self.assert_common_cleanup()
 
     def test_server_start_timeout_releases_slot(self):
         self.health.side_effect = lambda server: server.container_name != self.names.servers["first"]
