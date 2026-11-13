@@ -15,14 +15,29 @@ Initialization prepares the task and returns its instructions, solving time
 budget, action reference, and initial observation. The task sandbox has a
 separate filesystem from the agent's local workspace.
 
-The environment exposes six actions:
+Select the agent-facing interface in the run configuration:
+
+```yaml
+environment: terminal_bench
+environment_parameters:
+  environment_version: "v1.2"
+```
+
+The supported values are `v1` and `v1.2`. Omitting `environment_version` keeps
+the original `v1` behavior. Unknown values fail at startup. This selection is
+fixed per session, so the same runtime can serve both versions concurrently.
+It is independent of the benchmark dataset version, runtime package release,
+and socket protocol version. The runtime records it in session and result metadata.
+
+Each version exposes six actions:
 
 | Action | Purpose |
 | --- | --- |
 | `terminal_send` | Send text or named keys to an interactive terminal |
 | `terminal_read` | Read a terminal screen or recent history |
 | `terminal_new` | Open another terminal in the same task container |
-| `get_file` | Retrieve a file from the task container |
+| `get_file` (`v1`) | Retrieve a file, at most 32 MiB, as `file.bin` and `file.json` observation artifacts |
+| `get_path` (`v1.2`) | Copy a file or directory from the task container into the agent workspace |
 | `send_path` | Copy a file or directory from the agent workspace into the task container |
 | `finish` | End solving and submit the task for grading |
 
@@ -96,6 +111,81 @@ contents are merged into that destination directory. Its parent must exist.
 Matching files are overwritten and ordinary permission bits are preserved.
 Destination permissions still apply; a failed directory copy may be partial.
 
+## Files into the agent workspace
+
+Interface `v1.2` replaces `get_file` with the reverse transfer:
+
+```json
+{"id":"get_path","path_sandbox":"/app/results","path_local":"results"}
+```
+
+This writes to `/home/user/run/agent_run/results`, independent of the agent's
+current directory. `path_sandbox` is an absolute path in the main task container,
+even if a terminal is connected elsewhere through SSH. A file copies to the exact
+local filename; a directory's contents merge into the exact local directory,
+creating it if needed. The parent must already exist, and matching files are
+overwritten. `path_local: "."` merges a directory into the workspace root without
+changing the root's permissions.
+
+The source must be readable by the task user and contain only regular files and
+directories. Source symlinks and special files are rejected, including symlinks
+in source ancestors. Absolute local paths, `..`, and destination symlinks are
+also rejected. Ordinary permission bits, including executable bits, are preserved;
+ownership belongs to the host runtime user, matching the bundled agent's user.
+Destination permissions still apply. Individual files are replaced atomically;
+a directory merge stops at the first failure and may be partial.
+
+The action returns a compact `transfer.json` receipt:
+
+```json
+{
+  "status": "success",
+  "path_sandbox": "/app/results",
+  "path_local": "results",
+  "kind": "directory",
+  "files_copied": 5,
+  "bytes_copied": 12000
+}
+```
+
+If copying fails after making workspace changes, the action still returns a
+normal observation and advances the step, with a partial receipt:
+
+```json
+{
+  "status": "partial",
+  "path_sandbox": "/app/results",
+  "path_local": "results",
+  "kind": "directory",
+  "files_copied": 2,
+  "files_not_copied": 3,
+  "bytes_copied": 4800,
+  "error": "Could not copy results/c.txt: permission denied."
+}
+```
+
+Counts include only completed file copies, including overwrites and empty files.
+`files_not_copied` includes both the failed and unattempted files from the staged
+source. Success receipts omit `files_not_copied` and `error`; neither receipt
+lists individual files. Creating a directory or changing its permissions also
+counts as progress, even with zero files copied. A later directory-permission
+failure can therefore return `partial` with `files_not_copied: 0`. Failures
+before any workspace changes remain action errors. A successful empty-directory
+merge returns `success`, including when nothing needed changing. Cancellation,
+timeouts, or a lost connection can still prevent receipt delivery.
+
+File contents go directly into the shared workspace, so
+the old 32 MiB retrieval limit does not apply. Transfers still use disk space and
+the task's solving time. The export uses GNU tar and find in the task container,
+executed as the task user; Docker only downloads the staged archive. Host-side
+archive validation rejects links and traversal before any workspace writes.
+
+Interface `v1` retains its original action schemas, description, size limit and
+observation contents. It does not accept `get_path`; `v1.2` does not accept
+`get_file`. The generic HTTP client is unchanged. Update both the host runtime
+and environment-server image before selecting `v1.2`; startup refuses a runtime
+that does not acknowledge the requested version.
+
 ## Submission and results
 
 `finish` immediately returns a terminal observation. Grading continues on the
@@ -132,9 +222,10 @@ under that root. `run_controller_tb.py` forwards it to both the runtime and the
 controller; for manual startup, supply the same root to each. Datasets and the
 Harbor virtual environment retain their existing source-checkout locations.
 
-The adapter accepts `socket_path` and `request_timeout_seconds` in
-`environment_parameters`. Defaults are `/run/terminal-bench/runtime.sock` and
-`null` (no manager-to-runtime socket timeout). Omitting `request_timeout_seconds`
+The adapter accepts `socket_path`, `request_timeout_seconds`, and
+`environment_version` in `environment_parameters`. Their defaults are
+`/run/terminal-bench/runtime.sock`, `null` (no manager-to-runtime socket timeout),
+and `v1`. Omitting `request_timeout_seconds`
 or setting it to `null` waits for completion or a connection failure. A finite,
 positive number such as `36000` enables an explicit socket timeout. The runner
 supplies each task's alias as `session_id`; do not set a shared session ID in the

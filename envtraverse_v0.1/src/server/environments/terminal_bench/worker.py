@@ -15,6 +15,7 @@ from typing import Any
 from .protocol import MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, RuntimeFault, loads, pack
 from .records import error_result
 from .settings import TerminalSettings
+from .versions import DEFAULT_ENVIRONMENT_VERSION
 
 LOGGER = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ def main() -> None:
         error_result(Path(spec["output_dir"]) / spec["session_id"],
                      session_id=spec["session_id"], game_id=spec["task_id"],
                      benchmark=spec["benchmark"], task_name=spec["task_name"],
+                     environment_version=spec.get("environment_version", DEFAULT_ENVIRONMENT_VERSION),
                      exception_type=type(exc).__name__, note="Session worker failed; inspect runtime.log",
                      cleanup_required=True)
         raise

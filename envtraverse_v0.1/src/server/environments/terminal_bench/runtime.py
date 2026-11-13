@@ -20,6 +20,7 @@ from .protocol import (MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, PROTOCOL_VERSION,
 from .settings import TerminalSettings
 from .catalog import BenchmarkCatalog, add_catalog_arguments, catalog_from_args
 from .records import atomic_json, error_result, now, session_key
+from .versions import DEFAULT_ENVIRONMENT_VERSION, VERSIONS, get_version
 
 LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class RuntimeService:
         method = request.get("method")
         if method == "health":
             return {"runtime_version": __version__, "protocol_version": PROTOCOL_VERSION,
+                    "environment_versions": list(VERSIONS),
                     "ready": not self.stopping}
         if self.stopping:
             raise RuntimeFault("unavailable", "Runtime is shutting down")
@@ -97,6 +99,11 @@ class RuntimeService:
         except ValueError as exc:
             raise RuntimeFault("bad_request", str(exc)) from exc
         if method == "start":
+            try:
+                environment_version = get_version(
+                    request.get("environment_version", DEFAULT_ENVIRONMENT_VERSION)).name
+            except ValueError as exc:
+                raise RuntimeFault("bad_request", str(exc)) from exc
             directory = self.output_dir / session_id
             if session_id in self.owners or directory.exists():
                 raise RuntimeFault("duplicate_session", "Session ID already exists; never reuse an execution ID")
@@ -109,6 +116,7 @@ class RuntimeService:
             (directory / "runtime.log").touch(mode=0o600)
             game_id = request.get("game_id")
             manifest = {"session_id": session_id, "game_id": game_id,
+                        "environment_version": environment_version,
                         "accepted_at": now(), "runtime_version": __version__,
                         "environment_type": self.environment_type,
                         "columns": self.settings.columns, "rows": self.settings.rows}
@@ -122,6 +130,7 @@ class RuntimeService:
                 session = self.session_factory(
                     session_id=session_id, task_id=spec.game_id, task_path=spec.path,
                     output_dir=self.output_dir, settings=self.settings,
+                    environment_version=environment_version,
                     workspace_dir=self.runs_dir / session_id / "run" / "agent_run",
                     benchmark=spec.benchmark, task_name=spec.task_name,
                     environment_type=self.environment_type, environment_kwargs=self.environment_kwargs,
@@ -134,6 +143,9 @@ class RuntimeService:
                     self._watch_session(session_id, session), name=f"completion-{session_id}",
                 )
                 result = await session.start()
+                if result.get("environment_version", DEFAULT_ENVIRONMENT_VERSION) != environment_version:
+                    raise RuntimeFault("start_failed", "Worker returned a different environment_version")
+                result["environment_version"] = environment_version
                 public_identity = {"session_id": session_id}
                 result["observation"]["files"]["session.json"] = {"text": json.dumps(public_identity, indent=2)}
                 return result
@@ -142,6 +154,7 @@ class RuntimeService:
                 if session is not None:
                     await session.close()
                 error_result(directory, session_id=session_id, game_id=game_id,
+                             environment_version=environment_version,
                              benchmark=manifest.get("benchmark"), task_name=manifest.get("task_name"),
                              exception_type=type(exc).__name__, note="Session initialization failed; see runtime.log")
                 self._report_completed(session_id)
@@ -156,7 +169,7 @@ class RuntimeService:
             return {"closed": True}
         if session is None:
             raise RuntimeFault("unknown_session", "Unknown runtime session")
-        action = validate_action(request.get("action"))
+        action = validate_action(request.get("action"), environment_version=session.environment_version)
         return await session.move(action)
 
     async def _watch_session(self, session_id: str, session: Any) -> None:

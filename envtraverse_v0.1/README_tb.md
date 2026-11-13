@@ -35,6 +35,8 @@ The supplied small configuration is:
 ```yaml
 agent: agent_v1
 environment: terminal_bench
+environment_parameters:
+  environment_version: "v1.2"
 server_mounts:
   - source: ./run_tb/socket
     target: /run/terminal-bench
@@ -52,6 +54,13 @@ defaults to `envtraverse_v0.1/`, even if the configuration lives elsewhere.
 The runtime creates the directory before the
 controller starts. The fast service tier is optional and defaults to `false`
 when omitted.
+
+All supplied Terminal-Bench configurations select interface `v1.2`, which uses
+`get_path` to copy sandbox files and directories into the agent workspace.
+Use `environment_parameters.environment_version: "v1"` for the original
+`get_file` observation behavior. Omitting this parameter also selects `v1`;
+the default does not follow newer releases. This interface version is independent
+of the benchmark dataset version in the game IDs.
 
 Use `--run-root` to keep an experiment outside the source checkout:
 

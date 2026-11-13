@@ -88,7 +88,9 @@ workspace and responses.
 An action may also refer to files in the agent's workspace if the environment's
 infrastructure supports this. For example, Terminal-Bench's
 [`send_path`](terminal_bench/README.md#files-from-the-agent-workspace) copies files
-into its task container. This requires explicit integration; the shared server
+into its task container, while interface `v1.2` adds
+[`get_path`](terminal_bench/README.md#files-into-the-agent-workspace) for the reverse
+direction. This requires explicit integration; the shared server
 does not automatically mount the agent workspace.
 
 ## Dependencies and configuration

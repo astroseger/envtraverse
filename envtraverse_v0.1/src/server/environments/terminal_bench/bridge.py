@@ -11,6 +11,7 @@ from typing import Any
 
 from .settings import TerminalSettings
 from .lifecycle import SessionLifecycle
+from .versions import DEFAULT_ENVIRONMENT_VERSION
 
 
 @dataclass
@@ -18,6 +19,7 @@ class BridgeState:
     settings: TerminalSettings
     workspace_dir: Path
     upload_dir: Path
+    environment_version: str = DEFAULT_ENVIRONMENT_VERSION
     lifecycle: SessionLifecycle = field(default_factory=SessionLifecycle)
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)

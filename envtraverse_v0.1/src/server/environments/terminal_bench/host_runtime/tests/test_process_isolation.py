@@ -57,10 +57,25 @@ class ProcessIsolationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(session.process.returncode, "Worker leaked after shutdown")
         self.temp.cleanup()
 
-    def manager(self):
-        manager = EnvironmentManager({"socket_path": str(self.root / "runtime.sock")})
+    def manager(self, **parameters):
+        manager = EnvironmentManager({"socket_path": str(self.root / "runtime.sock"), **parameters})
         self.managers.append(manager)
         return manager
+
+    async def test_environment_version_survives_worker_process_boundary(self):
+        managers = [self.manager(environment_version=version) for version in ("v1", "v1.2")]
+        starts = await asyncio.gather(*(self.start_manager(manager) for manager in managers))
+        for manager, start, retrieval in zip(managers, starts, ("get_file", "get_path")):
+            self.assertIn('"id":"' + retrieval + '"', start.environment_description)
+            action = ({"id": "get_file", "path": "/app/a"} if retrieval == "get_file" else
+                      {"id": "get_path", "path_sandbox": "/app/a", "path_local": "a"})
+            await asyncio.to_thread(manager.move, action)
+            spec = json.loads((await self.file(manager, "worker-spec.json")).read_text())
+            self.assertEqual(spec["environment_version"], manager.environment_version)
+            await asyncio.to_thread(manager.move, {"id": "finish"})
+            await self.service.completions[manager.session_id]
+            result = json.loads((await self.file(manager, "result.json")).read_text())
+            self.assertEqual(result["environment_version"], manager.environment_version)
 
     async def start_manager(self, manager, name="quick"):
         return await asyncio.wait_for(asyncio.to_thread(manager.start_environment, "terminal-bench-2.1-" + name), 15)

@@ -2,10 +2,31 @@
 from __future__ import annotations
 
 from typing import Any
+from .versions import DEFAULT_ENVIRONMENT_VERSION, get_version
+
+
+def retrieval_description(action: str, max_file_bytes: int) -> str:
+    if action == "get_file":
+        return f'''- {{"id":"get_file","path":"/absolute/path/in/main/container"}}
+  Retrieve a readable regular file, at most {max_file_bytes} bytes. This reads
+  from the main container, even while a terminal is connected elsewhere by SSH.
+'''
+    return '''- {"id":"get_path","path_sandbox":"/app/results","path_local":"results"}
+  Copy a readable regular file or directory from the main container to your workspace.
+  path_sandbox must be absolute. path_local is relative to /home/user/run/agent_run/,
+  independent of your current directory, and cannot contain '..'.
+  For a file, path_local specifies the destination filename.
+  For a directory, its contents are merged into path_local, creating it if needed.
+  The destination's parent must exist. Matching files are overwritten.
+  Symbolic links and special files are rejected.
+  File permissions, including executable bits, are preserved.
+'''
 
 
 def environment_description(instruction: str, max_file_bytes: int, *,
-                            time_budget: dict[str, Any] | None = None) -> str:
+                            time_budget: dict[str, Any] | None = None,
+                            environment_version: str = DEFAULT_ENVIRONMENT_VERSION) -> str:
+    retrieval = retrieval_description(get_version(environment_version).retrieval_action, max_file_bytes)
     budget_text = ""
     if time_budget is not None:
         seconds = time_budget.get("agent_timeout_seconds")
@@ -41,10 +62,7 @@ Actions are JSON objects:
   does not wait for a command to finish.
 - {{"id":"terminal_new"}}
   Open another independent terminal and return its ID.
-- {{"id":"get_file","path":"/absolute/path/in/main/container"}}
-  Retrieve a readable regular file, at most {max_file_bytes} bytes. This reads
-  from the main container, even while a terminal is connected elsewhere by SSH.
-- {{"id":"send_path","path_local":"solution","path_sandbox":"/app/solution"}}
+{retrieval}- {{"id":"send_path","path_local":"solution","path_sandbox":"/app/solution"}}
   Copy a regular file or directory from your local workspace into the main
   container. path_local is relative to your workspace (/home/user/run/agent_run/).
   Absolute source paths, '..', symbolic links and special files are rejected.

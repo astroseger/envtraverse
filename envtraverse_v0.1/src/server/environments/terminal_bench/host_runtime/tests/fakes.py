@@ -77,6 +77,7 @@ class FakeSession:
     """Used only for wire-protocol and manager tests; reward is deliberately fake."""
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+        self.environment_version = kwargs.get("environment_version", "v1")
         self.closed = False
         self.ready = False
         self.close_task = None
@@ -96,8 +97,9 @@ class FakeSession:
         self.ready = True
         instruction = (self.task_path / "instruction.md").read_text()
         return {"session_id": self.session_id, "observation": self.screen(),
+                "environment_version": self.environment_version,
                 "environment_description": environment_description(instruction,
-                    self.settings.max_file_bytes)}
+                    self.settings.max_file_bytes, environment_version=self.environment_version)}
 
     async def move(self, action):
         self.calls.append(action)
@@ -113,6 +115,8 @@ class FakeSession:
             result = self.screen(f"t{self.terminal_count}")
         elif kind == "get_file":
             result = observation({"file.bin": b"\0\xffbinary\n", "file.json": "{}"})
+        elif kind == "get_path":
+            result = observation({"transfer.json": json.dumps({"test_double": True, **action})})
         elif kind == "finish":
             self.finished = True
             self.request_close(reason="finish")
@@ -141,4 +145,5 @@ class FakeSession:
                     "termination_reason": reason, "rewards": {"reward": 1.0} if self.ready else None,
                     "test_double": True, "session_id": self.session_id, "game_id": self.task_id,
                     "benchmark": self.benchmark, "task_name": self.task_name, "worker_pid": os.getpid(),
+                    "environment_version": self.environment_version,
                 })

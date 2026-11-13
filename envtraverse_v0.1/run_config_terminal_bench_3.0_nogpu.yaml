@@ -4,6 +4,8 @@ agent_docker_build_args:
 http_read_timeout_seconds: 36300             # 10 hours 5 minutes
 supervisor_inactivity_timeout_seconds: 39600  # 11 hours
 environment: terminal_bench
+environment_parameters:
+  environment_version: "v1.2"
 
 server_mounts:
   - source: ./run_tb/socket

@@ -5,6 +5,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 from .protocol import RuntimeFault
+from .versions import DEFAULT_ENVIRONMENT_VERSION, get_version
 
 KEY_ALIASES = {"PageUp": "PPage", "PageDown": "NPage", "Delete": "DC", "Insert": "IC"}
 KEY_NAMES = {
@@ -19,7 +20,8 @@ def _bad(message: str) -> None:
     raise RuntimeFault("invalid_action", message)
 
 
-def validate_action(action: Any) -> dict[str, Any]:
+def validate_action(action: Any, *, environment_version: str = DEFAULT_ENVIRONMENT_VERSION) -> dict[str, Any]:
+    version = get_version(environment_version)
     if not isinstance(action, dict) or not isinstance(action.get("id"), str):
         _bad("Action must be an object with a string id")
     kind = action["id"]
@@ -28,10 +30,11 @@ def validate_action(action: Any) -> dict[str, Any]:
         "terminal_send": ({"id", "terminal_id", "keys"}, set()),
         "terminal_read": ({"id", "terminal_id"}, {"view", "wait_ms", "lines"}),
         "get_file": ({"id", "path"}, set()),
+        "get_path": ({"id", "path_local", "path_sandbox"}, set()),
         "send_path": ({"id", "path_local", "path_sandbox"}, set()),
         "finish": ({"id"}, set()),
     }
-    if kind not in specs:
+    if kind not in version.actions:
         _bad("Unknown action id")
     required, optional = specs[kind]
     if not required <= action.keys() or action.keys() - required - optional:
@@ -75,7 +78,7 @@ def validate_action(action: Any) -> dict[str, Any]:
                 _bad("File path is too long")
         except UnicodeEncodeError:
             _bad("Path must be valid Unicode")
-    elif kind == "send_path":
+    elif kind in {"send_path", "get_path"}:
         for name in ("path_local", "path_sandbox"):
             path = action[name]
             if not isinstance(path, str) or not path or "\0" in path:

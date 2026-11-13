@@ -16,6 +16,7 @@ from uuid import uuid4
 from .actions import KEY_ALIASES, validate_action
 from .protocol import RuntimeFault, observation
 from .settings import TerminalSettings
+from .versions import DEFAULT_ENVIRONMENT_VERSION
 
 
 class TmuxTerminals:
@@ -182,8 +183,9 @@ fi'''
             "path": path, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
         }, indent=2)})
 
-    async def perform(self, raw: dict[str, Any]) -> dict[str, Any]:
-        action = validate_action(raw)
+    async def perform(self, raw: dict[str, Any], *,
+                      environment_version: str = DEFAULT_ENVIRONMENT_VERSION) -> dict[str, Any]:
+        action = validate_action(raw, environment_version=environment_version)
         match action["id"]:
             case "terminal_new":
                 return await self.new()

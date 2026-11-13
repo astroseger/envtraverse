@@ -1,5 +1,7 @@
 agent: agent_v1
 environment: terminal_bench
+environment_parameters:
+  environment_version: "v1.2"
 
 server_mounts:
   - source: ./run_tb/socket

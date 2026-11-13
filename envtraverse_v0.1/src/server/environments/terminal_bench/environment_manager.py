@@ -14,6 +14,7 @@ from .compat import (
 )
 from .protocol import RuntimeClient, RuntimeFault, decode_observation
 from .records import session_key
+from .versions import DEFAULT_ENVIRONMENT_VERSION, get_version
 
 LOGGER = logging.getLogger("env-server.terminal_bench")
 
@@ -26,9 +27,11 @@ def _observation(raw: dict[str, Any]) -> Observation:
 class EnvironmentManager:
     def __init__(self, parameters: dict[str, Any] | None = None):
         parameters = {} if parameters is None else parameters
-        allowed = {"socket_path", "request_timeout_seconds", "session_id"}
+        allowed = {"socket_path", "request_timeout_seconds", "session_id", "environment_version"}
         if not isinstance(parameters, dict) or set(parameters) - allowed:
-            raise ValueError("Expected socket_path, optional session_id and request_timeout_seconds")
+            raise ValueError("Expected socket_path, optional session_id, request_timeout_seconds and environment_version")
+        self.environment_version = get_version(
+            parameters.get("environment_version", DEFAULT_ENVIRONMENT_VERSION)).name
         path = parameters.get("socket_path", os.environ.get("TB_RUNTIME_SOCKET", "/run/terminal-bench/runtime.sock"))
         if not isinstance(path, str) or not os.path.isabs(path) or "\0" in path:
             raise ValueError("socket_path must be an absolute pathname")
@@ -61,9 +64,13 @@ class EnvironmentManager:
             if not isinstance(game_id, str) or not game_id.strip():
                 raise ValueError("game_id must be a nonempty string")
             self._start_sent = True
-            raw = self._call("start", game_id=game_id)
+            raw = self._call("start", game_id=game_id, environment_version=self.environment_version)
             if raw.get("session_id") != self.session_id:
                 raise ValueError("Runtime returned a different session ID")
+            # Older runtimes only implement v1 and do not acknowledge a version.
+            if raw.get("environment_version", DEFAULT_ENVIRONMENT_VERSION) != self.environment_version:
+                raise RuntimeFault("start_failed", "Runtime did not confirm the requested environment_version; "
+                                   "restart it with matching Terminal-Bench code")
             description = raw["environment_description"]
             if not isinstance(description, str) or not description.strip():
                 raise ValueError("Runtime returned an empty description")
@@ -86,7 +93,7 @@ class EnvironmentManager:
         if self._terminal:
             raise InvalidActionError("The environment is terminal")
         try:
-            validate_action(action)
+            validate_action(action, environment_version=self.environment_version)
             raw = self._call("action", action=action)
             result = _observation(raw["observation"])
         except RuntimeFault as exc:

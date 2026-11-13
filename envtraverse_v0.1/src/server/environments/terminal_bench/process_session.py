@@ -20,6 +20,7 @@ from typing import Any
 from .protocol import MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, RuntimeFault, loads, pack, terminal_observation
 from .records import atomic_json, error_result, now
 from .settings import TerminalSettings
+from .versions import DEFAULT_ENVIRONMENT_VERSION, get_version
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,10 +32,13 @@ class ProcessSession:
                  environment_type: str = "docker", environment_kwargs: dict[str, Any] | None = None,
                  cleanup_grace_seconds: float = 120,
                  worker_factory: str = "terminal_bench.harbor_runner:HarborSession",
-                 build_timeout_seconds: float = 3600):
+                 build_timeout_seconds: float = 3600,
+                 environment_version: str = DEFAULT_ENVIRONMENT_VERSION):
+        self.environment_version = get_version(environment_version).name
         self.session_id, self.task_id = session_id, task_id
         self.directory = output_dir / session_id  # Reserved by RuntimeService, not by the child.
-        self.identity = {"benchmark": benchmark, "task_name": task_name}
+        self.identity = {"benchmark": benchmark, "task_name": task_name,
+                         "environment_version": self.environment_version}
         self.spec = {
             "session_id": session_id, "task_id": task_id, "task_path": str(task_path),
             "output_dir": str(output_dir), "settings": asdict(settings), **self.identity,

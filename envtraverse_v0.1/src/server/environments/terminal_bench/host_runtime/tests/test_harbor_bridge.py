@@ -213,8 +213,14 @@ class BridgeLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_command_does_not_stop_agent_loop(self):
         await self.session.start()
-        with self.assertRaises(RuntimeFault):
+        # Python 3.12's assertRaises clears the shared exception traceback,
+        # which can close the suspended bridge coroutine that produced it.
+        try:
             await self.session.move({"id": "terminal_send", "terminal_id": "t1", "keys": [{"key": "INVALID"}]})
+        except RuntimeFault:
+            pass
+        else:
+            self.fail("Invalid input was accepted")
         result = await self.session.move({"id": "terminal_read", "terminal_id": "t1"})
         self.assertFalse(result["observation"]["terminal"])
 

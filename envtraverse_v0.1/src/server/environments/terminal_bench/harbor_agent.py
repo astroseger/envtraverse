@@ -16,6 +16,7 @@ from .bridge import BRIDGES
 from .protocol import RuntimeFault
 from .terminal import TmuxTerminals
 from .uploads import WorkspaceUploads
+from .downloads import WorkspaceDownloads
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class RemoteTerminalAgent(BaseAgent):
         self.state.logs_dir = self.logs_dir
         self.terminals: TmuxTerminals | None = None
         self.uploads: WorkspaceUploads | None = None
+        self.downloads: WorkspaceDownloads | None = None
 
     @staticmethod
     def name() -> str:
@@ -39,11 +41,13 @@ class RemoteTerminalAgent(BaseAgent):
         self.terminals = TmuxTerminals(environment, self.state.settings)
         self.uploads = WorkspaceUploads(environment, self.state.workspace_dir,
                                         self.state.upload_dir)
+        self.downloads = WorkspaceDownloads(environment, self.state.workspace_dir,
+                                            self.state.upload_dir.parent / "downloads")
         await self.terminals.setup()
         self.state.initial_observation = await self.terminals.new()
 
     async def run(self, instruction: str, environment: Any, context: Any) -> None:
-        if self.terminals is None or self.uploads is None:
+        if self.terminals is None or self.uploads is None or self.downloads is None:
             raise RuntimeError("Agent setup was not called")
         self.state.lifecycle.begin_solving(asyncio.current_task())
         self.state.instruction = instruction
@@ -55,7 +59,7 @@ class RemoteTerminalAgent(BaseAgent):
             while True:
                 action, current_reply = await self.state.queue.get()
                 try:
-                    validate_action(action)
+                    validate_action(action, environment_version=self.state.environment_version)
                     if action["id"] == "finish":
                         termination_reason = self.state.finish_reason
                         current_reply.set_result({"submitted": True})
@@ -65,8 +69,10 @@ class RemoteTerminalAgent(BaseAgent):
                         return
                     if action["id"] == "send_path":
                         result = await self.uploads.send(action["path_local"], action["path_sandbox"])
+                    elif action["id"] == "get_path":
+                        result = await self.downloads.get(action["path_sandbox"], action["path_local"])
                     else:
-                        result = await self.terminals.perform(action)
+                        result = await self.terminals.perform(action, environment_version=self.state.environment_version)
                 except RuntimeFault as exc:
                     if not current_reply.done():
                         current_reply.set_exception(exc)

@@ -1,4 +1,4 @@
-"""Actual client + HTTP server + worker + Harbor/Docker workspace upload tests."""
+"""Actual client + HTTP server + worker + Harbor/Docker workspace transfer tests."""
 from __future__ import annotations
 
 import asyncio
@@ -61,7 +61,8 @@ RUN useradd -m -u 12345 -U solver \\
     && chown solver:solver /app \\
     && mkdir /protected \\
     && printf 'original' > /protected/keep.txt \\
-    && chmod 755 /protected && chmod 644 /protected/keep.txt
+    && chmod 755 /protected && chmod 644 /protected/keep.txt \\
+    && printf 'private' > /protected/private.txt && chmod 600 /protected/private.txt
 """ + ("USER solver\n" if user_mode == "image" else ""))
         config = fixture / "task.toml"
         text = config.read_text().replace("timeout_sec = 120.0", "timeout_sec = 240.0")
@@ -74,18 +75,21 @@ RUN useradd -m -u 12345 -U solver \\
             runs_dir=self.root / "run", catalog=BenchmarkCatalog(smoke_task=fixture))
         await self.service.start()
 
-    async def start_client(self):
+    async def start_client(self, environment_version=None):
         alias = uuid4().hex
         game = self.root / "run" / alias
         workspace = game / "run/agent_run"
         workspace.mkdir(parents=True)
         server_log = game / "server.log"
+        parameters = {"socket_path": str(self.root / "runtime.sock"), "session_id": alias}
+        if environment_version is not None:
+            parameters["environment_version"] = environment_version
         with (game / "server-process.log").open("wb") as output:
             process = await asyncio.create_subprocess_exec(
                 self.python, str(self.project / "src/server/server.py"),
                 "--environment", "terminal_bench", "--game-id", SMOKE_GAME,
                 "--game-alias", alias, "--port", "0", "--parameters",
-                json.dumps({"socket_path": str(self.root / "runtime.sock"), "session_id": alias}),
+                json.dumps(parameters),
                 env=dict(os.environ, ENV_SERVER_LOG_PATH=str(server_log), PYTHONDONTWRITEBYTECODE="1"),
                 stdout=output, stderr=asyncio.subprocess.STDOUT)
         self.servers.append(process)
@@ -145,6 +149,157 @@ RUN useradd -m -u 12345 -U solver \\
     async def send_path(self, client, source, destination, succeeds=True):
         return await self.move(client, {"id": "send_path", "path_local": source,
                                        "path_sandbox": destination}, succeeds=succeeds)
+
+    async def get_path(self, client, source, destination, succeeds=True):
+        return await self.move(client, {"id": "get_path", "path_sandbox": source,
+                                       "path_local": destination}, succeeds=succeeds)
+
+    async def exercise_downloads(self, user_mode):
+        await self.start_runtime(user_mode)
+        client = await self.start_client("v1.2")
+        workspace = client["workspace"]
+        name = "a 'quote' $(not-a-command) Ω.bin"
+        data = bytes(range(256)) * (33 * 4096 if user_mode == "root" else 8)
+        (workspace / name).write_bytes(data)
+        await self.send_path(client, name, "/app/" + name)
+        files = await self.get_path(client, "/app/" + name, "downloaded.bin")
+        self.assertEqual(set(files), {"transfer.json"})
+        self.assertEqual(json.loads(files["transfer.json"]), {
+            "status": "success", "path_local": "downloaded.bin", "path_sandbox": "/app/" + name,
+            "kind": "file", "bytes_copied": len(data), "files_copied": 1})
+        self.assertEqual((workspace / "downloaded.bin").read_bytes(), data)
+        self.assertEqual((workspace / "downloaded.bin").stat().st_uid, os.getuid())
+
+        source = workspace / "source"
+        (source / "nested").mkdir(parents=True)
+        (source / "empty").mkdir()
+        (source / "nested/data.bin").write_bytes(data)
+        (source / "run.sh").write_bytes(b"#!/bin/sh\n")
+        (source / "run.sh").chmod(0o751)
+        (source / "empty-file").touch()
+        await self.send_path(client, "source", "/app/tree")
+        (workspace / "received").mkdir()
+        (workspace / "received/keep").write_bytes(b"untouched")
+        (workspace / "received/run.sh").write_bytes(b"old")
+        await self.get_path(client, "/app/tree", "received")
+        await self.get_path(client, "/app/tree", "received")
+        self.assertEqual((workspace / "received/nested/data.bin").read_bytes(), data)
+        self.assertEqual((workspace / "received/keep").read_bytes(), b"untouched")
+        self.assertEqual((workspace / "received/run.sh").stat().st_mode & 0o7777, 0o751)
+        self.assertTrue((workspace / "received/empty").is_dir())
+        self.assertEqual((workspace / "received/empty-file").stat().st_size, 0)
+        await self.move(client, {"id": "get_file", "path": "/app/tree/run.sh"}, succeeds=False)
+        await self.get_path(client, "/app/tree/run.sh", "../escape", succeeds=False)
+        await self.get_path(client, "/app/tree/run.sh", str(workspace / "escape"), succeeds=False)
+        await self.get_path(client, "/app/tree/run.sh", "missing/file", succeeds=False)
+        await self.get_path(client, "/app/tree/run.sh", "file/", succeeds=False)
+
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "keep").write_bytes(b"outside")
+        (workspace / "link").symlink_to(outside, target_is_directory=True)
+        await self.get_path(client, "/app/tree/run.sh", "link/keep", succeeds=False)
+        self.assertEqual((outside / "keep").read_bytes(), b"outside")
+        await self.terminal_command(client, "ln -s /app/tree /app/source-link; mkfifo /app/fifo")
+        for path in ("/app/source-link", "/app/source-link/run.sh", "/app/fifo", "/app/missing"):
+            await self.get_path(client, path, "rejected", succeeds=False)
+        await self.get_path(client, "/protected/private.txt", "private", succeeds=user_mode == "root")
+        if user_mode != "root":
+            self.assertFalse((workspace / "private").exists())
+
+        # Sources outside /app are also copied from the main task container.
+        await self.terminal_command(client, "mkdir /tmp/export-me; printf temporary > /tmp/export-me/data")
+        await self.get_path(client, "/tmp/export-me", "temporary")
+        self.assertEqual((workspace / "temporary/data").read_bytes(), b"temporary")
+        self.assertEqual(list((self.root / "results" / client["alias"] / "downloads").iterdir()), [])
+        (workspace / "answer").write_bytes(b"hello from terminal bench\n")
+        await self.send_path(client, "answer", "/app/answer.txt")
+        await self.finish(client)
+        result = json.loads((self.root / "results" / client["alias"] / "result.json").read_text())
+        self.assertEqual(result["environment_version"], "v1.2")
+
+    async def test_v12_root_downloads_files_and_directories_above_32_mib(self):
+        await self.exercise_downloads("root")
+
+    async def test_v12_downloads_respect_task_user_read_permissions(self):
+        await self.exercise_downloads("task")
+
+    async def test_v12_downloads_respect_dockerfile_user_read_permissions(self):
+        await self.exercise_downloads("image")
+
+    async def test_v12_partial_copy_advances_step_and_client_can_continue(self):
+        await self.start_runtime()
+        client = await self.start_client("v1.2")
+        workspace = client["workspace"]
+        source = workspace / "source"
+        source.mkdir()
+        for name, content in (("a", b"copied"), ("b", b"blocked"), ("c", b"not attempted")):
+            (source / name).write_bytes(content)
+        await self.send_path(client, "source", "/app/partial")
+        destination = workspace / "received"
+        (destination / "b").mkdir(parents=True)
+        (destination / "a").write_bytes(b"original")
+        state_file = client["dir"] / ".client_session.json"
+        previous_step = json.loads(state_file.read_text())["step_index"]
+
+        files = await self.get_path(client, "/app/partial", "received")
+        current_step = json.loads(state_file.read_text())["step_index"]
+        self.assertEqual(current_step, previous_step + 1)
+        self.assertEqual(set(files), {"transfer.json"})
+        receipt = json.loads(files["transfer.json"])
+        error = receipt.pop("error")
+        self.assertIn("received/b", error)
+        self.assertNotIn(str(self.root), error)
+        self.assertEqual(receipt, {
+            "status": "partial", "path_local": "received", "path_sandbox": "/app/partial",
+            "kind": "directory", "files_copied": 1, "bytes_copied": 6, "files_not_copied": 2,
+        })
+        artifact = client["observations"] / f"step_{current_step:04d}_transfer.json"
+        self.assertEqual(artifact.read_bytes(), files["transfer.json"])
+        self.assertEqual((destination / "a").read_bytes(), b"copied")
+        self.assertTrue((destination / "b").is_dir())
+        self.assertFalse((destination / "c").exists())
+
+        # Removing the obstruction allows the same client to continue normally.
+        (destination / "b").rmdir()
+        files = await self.get_path(client, "/app/partial", "received")
+        self.assertEqual(json.loads(state_file.read_text())["step_index"], current_step + 1)
+        self.assertEqual(json.loads(files["transfer.json"]), {
+            "status": "success", "path_local": "received", "path_sandbox": "/app/partial",
+            "kind": "directory", "files_copied": 3, "bytes_copied": 26,
+        })
+        for name in ("a", "b", "c"):
+            self.assertEqual((destination / name).read_bytes(), (source / name).read_bytes())
+
+        # A failure with no installed files or directory changes stays an error.
+        (workspace / "blocked/a").mkdir(parents=True)
+        previous_step = json.loads(state_file.read_text())["step_index"]
+        await self.get_path(client, "/app/partial", "blocked", succeeds=False)
+        self.assertEqual(json.loads(state_file.read_text())["step_index"], previous_step)
+        self.assertEqual({path.name for path in (workspace / "blocked").iterdir()}, {"a"})
+        self.assertEqual(list((self.root / "results" / client["alias"] / "downloads").iterdir()), [])
+        (workspace / "answer").write_bytes(b"hello from terminal bench\n")
+        await self.send_path(client, "answer", "/app/answer.txt")
+        await self.finish(client)
+
+    async def test_v1_and_v12_share_runtime_and_keep_workspaces_separate(self):
+        await self.start_runtime()
+        first, second = await asyncio.gather(self.start_client("v1"), self.start_client("v1.2"))
+        for client, content in ((first, b"first"), (second, b"second")):
+            (client["workspace"] / "same").write_bytes(content)
+            await self.send_path(client, "same", "/app/same")
+        result = await self.move(first, {"id": "get_file", "path": "/app/same"})
+        self.assertEqual(result["file.bin"], b"first")
+        await self.get_path(second, "/app/same", "downloaded")
+        self.assertEqual((second["workspace"] / "downloaded").read_bytes(), b"second")
+        (second["workspace"] / "other").symlink_to(first["workspace"], target_is_directory=True)
+        await self.get_path(second, "/app/same", "other/same", succeeds=False)
+        self.assertEqual((first["workspace"] / "same").read_bytes(), b"first")
+        await self.get_path(first, "/app/same", "rejected", succeeds=False)
+        for client in (first, second):
+            (client["workspace"] / "answer").write_bytes(b"hello from terminal bench\n")
+            await self.send_path(client, "answer", "/app/answer.txt")
+        await asyncio.gather(self.finish(first), self.finish(second))
 
     async def terminal_command(self, client, command):
         marker = uuid4().hex

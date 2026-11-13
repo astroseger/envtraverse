@@ -16,6 +16,7 @@ from .description import environment_description
 from .protocol import RuntimeFault, terminal_observation
 from .settings import TerminalSettings
 from .records import atomic_json, now
+from .versions import DEFAULT_ENVIRONMENT_VERSION, get_version
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_HARBOR_VERSION = "0.23.0"
@@ -84,17 +85,21 @@ class HarborSession:
                  output_dir: Path, settings: TerminalSettings, workspace_dir: Path,
                  environment_type: str = "docker", environment_kwargs: dict[str, Any] | None = None,
                  benchmark: str | None = None, task_name: str | None = None,
-                 build_timeout_seconds: float = 3600):
+                 build_timeout_seconds: float = 3600,
+                 environment_version: str = DEFAULT_ENVIRONMENT_VERSION):
+        self.environment_version = get_version(environment_version).name
         self.session_id = session_id
         self.task_id = task_id
-        self.identity = {"benchmark": benchmark, "task_name": task_name}
+        self.identity = {"benchmark": benchmark, "task_name": task_name,
+                         "environment_version": self.environment_version}
         self.task_path = task_path
         self.output_dir = output_dir
         self.settings = settings
         self.environment_type = environment_type
         self.environment_kwargs = environment_kwargs or {}
         self.build_timeout_seconds = build_timeout_seconds
-        self.state = BridgeState(settings, workspace_dir, output_dir / session_id / "uploads")
+        self.state = BridgeState(settings, workspace_dir, output_dir / session_id / "uploads",
+                                 environment_version=self.environment_version)
         self.runner: asyncio.Task | None = None
         self.final: dict[str, Any] | None = None
         self.closed = False
@@ -224,9 +229,11 @@ class HarborSession:
             raise RuntimeFault("start_failed", "Trial ended before startup was delivered")
         result = {
             "session_id": self.session_id,
+            "environment_version": self.environment_version,
             "environment_description": environment_description(
                 self.state.instruction, self.settings.max_file_bytes,
-                time_budget=self.state.lifecycle.time_budget()),
+                time_budget=self.state.lifecycle.time_budget(),
+                environment_version=self.environment_version),
             "observation": self.state.initial_observation,
         }
         self._log("started", task_id=self.task_id, **result)
