@@ -21,6 +21,10 @@ from terminal_bench.protocol import RuntimeFault, decode_observation
 from terminal_bench.uploads import Snapshot
 
 
+COPY_ERROR = ("Copy failed; check destination permissions and that its parent directory exists. "
+              "Some files may have been copied.")
+
+
 def member(name, data=b"", *, kind=tarfile.REGTYPE, mode=0o640, link=""):
     entry = tarfile.TarInfo(name)
     entry.type, entry.mode, entry.linkname = kind, mode, link
@@ -48,6 +52,12 @@ class DownloadFilesystemTests(unittest.TestCase):
         return receive_export(self.archive(entries), self.workspace, destination, directory=directory,
                               root_name="source", cancelled=cancelled or threading.Event())
 
+    def assert_copy_failure(self, entries, destination="result", *, directory=True):
+        with self.assertRaises(RuntimeFault) as failed:
+            self.receive(entries, destination, directory=directory)
+        self.assertEqual(failed.exception.code, "environment_error")
+        self.assertEqual(str(failed.exception), COPY_ERROR)
+
     def test_directory_merge_preserves_binary_empty_paths_and_ordinary_modes(self):
         (self.workspace / "result").mkdir()
         (self.workspace / "result/keep").write_text("untouched")
@@ -62,8 +72,7 @@ class DownloadFilesystemTests(unittest.TestCase):
             member("./empty-file"),
         ])
         target = self.workspace / "result"
-        self.assertEqual((result.directory, result.size, result.files, result.status),
-                         (True, len(data) + 10, 3, "success"))
+        self.assertEqual(result, Snapshot(True, len(data) + 10, 3))
         self.assertEqual((target / "nested/a 'Ω.bin").read_bytes(), data)
         self.assertEqual((target / "keep").read_text(), "untouched")
         self.assertTrue((target / "empty").is_dir())
@@ -75,8 +84,7 @@ class DownloadFilesystemTests(unittest.TestCase):
     def test_files_and_directory_totals_above_old_limit(self):
         data = b"\0\xff" * (17 * 1024 * 1024)
         file = self.receive([member("source", data)], "large.bin", directory=False)
-        self.assertEqual((file.directory, file.size, file.files, file.status),
-                         (False, len(data), 1, "success"))
+        self.assertEqual(file, Snapshot(False, len(data), 1))
         self.assertEqual((self.workspace / "large.bin").read_bytes(), data)
         result = self.receive([member(".", kind=tarfile.DIRTYPE),
                                member("./a", data[:len(data)//2]), member("./b", data[len(data)//2:])])
@@ -160,59 +168,48 @@ class DownloadFilesystemTests(unittest.TestCase):
             self.receive([member("source", b"data")], directory=False, cancelled=cancelled)
         self.assertEqual(list(self.workspace.iterdir()), [])
 
-    def test_partial_merge_reports_committed_files_and_stops_at_first_failure(self):
+    def test_partial_merge_raises_and_stops_at_first_failure(self):
         target = self.workspace / "result"
         target.mkdir()
         (target / "a").write_bytes(b"original")
         (target / "b").mkdir()
-        result = self.receive([
+        self.assert_copy_failure([
             member(".", kind=tarfile.DIRTYPE), member("./a", b"copied"),
             member("./b", b"blocked"), member("./c", b"not attempted"),
         ])
-        self.assertEqual((result.status, result.directory, result.files, result.size,
-                          result.files_not_copied), ("partial", True, 1, 6, 2))
-        self.assertIn("result/b", result.error)
-        self.assertNotIn(str(self.root), result.error)
         self.assertEqual((target / "a").read_bytes(), b"copied")
         self.assertTrue((target / "b").is_dir())
         self.assertFalse((target / "c").exists())
         self.assertEqual({path.name for path in target.iterdir()}, {"a", "b"})
 
-    def test_zero_byte_file_is_progress(self):
+    def test_failure_after_zero_byte_file_still_raises(self):
         target = self.workspace / "result"
         target.mkdir()
         (target / "b").mkdir()
-        result = self.receive([member(".", kind=tarfile.DIRTYPE), member("./a"),
-                               member("./b", b"blocked")])
-        self.assertEqual((result.status, result.files, result.size, result.files_not_copied),
-                         ("partial", 1, 0, 1))
+        self.assert_copy_failure([member(".", kind=tarfile.DIRTYPE), member("./a"),
+                                  member("./b", b"blocked")])
         self.assertEqual((target / "a").read_bytes(), b"")
 
-    def test_created_directory_is_progress_before_first_file_failure(self):
+    def test_created_directory_remains_after_first_file_failure(self):
         target = self.workspace / "result"
         target.mkdir()
         (target / "b").mkdir()
-        result = self.receive([member(".", kind=tarfile.DIRTYPE),
-                               member("./a-empty", kind=tarfile.DIRTYPE, mode=0o700),
-                               member("./b", b"blocked")])
-        self.assertEqual((result.status, result.files, result.size, result.files_not_copied),
-                         ("partial", 0, 0, 1))
+        self.assert_copy_failure([member(".", kind=tarfile.DIRTYPE),
+                                  member("./a-empty", kind=tarfile.DIRTYPE, mode=0o700),
+                                  member("./b", b"blocked")])
         self.assertTrue((target / "a-empty").is_dir())
-        self.assertIn("result/b", result.error)
 
-    def test_changed_directory_mode_is_progress_before_first_file_failure(self):
+    def test_changed_directory_mode_remains_after_first_file_failure(self):
         target = self.workspace / "result"
         (target / "a-empty").mkdir(parents=True)
         (target / "a-empty").chmod(0o755)
         (target / "b").mkdir()
-        result = self.receive([member(".", kind=tarfile.DIRTYPE),
-                               member("./a-empty", kind=tarfile.DIRTYPE, mode=0o700),
-                               member("./b", b"blocked")])
-        self.assertEqual((result.status, result.files, result.size, result.files_not_copied),
-                         ("partial", 0, 0, 1))
+        self.assert_copy_failure([member(".", kind=tarfile.DIRTYPE),
+                                  member("./a-empty", kind=tarfile.DIRTYPE, mode=0o700),
+                                  member("./b", b"blocked")])
         self.assertEqual(stat.S_IMODE((target / "a-empty").stat().st_mode), 0o700)
 
-    def test_metadata_failure_after_all_files_still_reports_partial(self):
+    def test_metadata_failure_after_all_files_still_raises(self):
         original_fchmod = os.fchmod
 
         def fail_directory_mode(fd, mode):
@@ -221,37 +218,49 @@ class DownloadFilesystemTests(unittest.TestCase):
             original_fchmod(fd, mode)
 
         with patch("terminal_bench.downloads.os.fchmod", side_effect=fail_directory_mode):
-            result = self.receive([member(".", kind=tarfile.DIRTYPE, mode=0o750),
-                                   member("./data", b"copied")])
-        self.assertEqual((result.status, result.files, result.size, result.files_not_copied),
-                         ("partial", 1, 6, 0))
+            self.assert_copy_failure([member(".", kind=tarfile.DIRTYPE, mode=0o750),
+                                      member("./data", b"copied")])
         self.assertEqual((self.workspace / "result/data").read_bytes(), b"copied")
-        self.assertIn("result", result.error)
-        self.assertNotIn(str(self.root), result.error)
-        self.assertNotIn("private host detail", result.error)
 
     def test_failure_without_persistent_progress_is_an_error(self):
         target = self.workspace / "result"
         (target / "a").mkdir(parents=True)
-        with self.assertRaises(RuntimeFault):
-            self.receive([member(".", kind=tarfile.DIRTYPE), member("./a", b"blocked")])
+        self.assert_copy_failure([member(".", kind=tarfile.DIRTYPE), member("./a", b"blocked")])
         self.assertEqual(list((target / "a").iterdir()), [])
 
         destination = self.workspace / "file"
         destination.write_bytes(b"original")
         with patch("terminal_bench.downloads.os.replace", side_effect=OSError(errno.EIO, "write failed")):
-            with self.assertRaises(RuntimeFault):
-                self.receive([member("source", b"new")], "file", directory=False)
+            self.assert_copy_failure([member("source", b"new")], "file", directory=False)
         self.assertEqual(destination.read_bytes(), b"original")
         self.assertEqual({path.name for path in self.workspace.iterdir()}, {"file", "result"})
 
+    def test_write_failure_keeps_original_destination_and_removes_temporary_file(self):
+        destination = self.workspace / "result"
+        destination.write_bytes(b"original")
+        original_fdopen = os.fdopen
+
+        class FailingWriter(io.BufferedWriter):
+            def write(self, data):
+                super().write(data[:4])
+                self.flush()
+                raise OSError(errno.ENOSPC, "disk full after a partial write")
+
+        def fdopen(fd, mode):
+            if mode == "wb":
+                return FailingWriter(io.FileIO(fd, mode))
+            return original_fdopen(fd, mode)
+
+        with patch("terminal_bench.downloads.os.fdopen", side_effect=fdopen):
+            self.assert_copy_failure([member("source", b"replacement")], directory=False)
+        self.assertEqual(destination.read_bytes(), b"original")
+        self.assertEqual(list(self.workspace.iterdir()), [destination])
+
     def test_empty_directory_without_changes_is_success(self):
         result = self.receive([member(".", kind=tarfile.DIRTYPE)], ".")
-        self.assertEqual((result.status, result.files, result.size, result.files_not_copied),
-                         ("success", 0, 0, 0))
-        self.assertIsNone(result.error)
+        self.assertEqual(result, Snapshot(True, 0, 0))
 
-    def test_cancellation_after_committed_file_is_not_a_partial_result(self):
+    def test_cancellation_after_committed_file_stays_cancellation(self):
         cancelled = threading.Event()
         original_replace = os.replace
 
@@ -324,9 +333,9 @@ class DownloadExportTests(unittest.IsolatedAsyncioTestCase):
             receipt = json.loads(files["transfer.json"])
             count = 1 if destination == "file.bin" else 2
             self.assertEqual(receipt, {
-                "status": "success", "path_local": destination, "path_sandbox": str(source),
+                "path_local": destination, "path_sandbox": str(source),
                 "kind": "file" if count == 1 else "directory",
-                "files_copied": count, "bytes_copied": len(data) * count,
+                "files": count, "bytes": len(data) * count,
             })
         self.assertEqual((self.workspace / "tree" / name).read_bytes(), data)
         self.assertEqual((self.workspace / "file.bin").read_bytes(), data)
@@ -335,22 +344,14 @@ class DownloadExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list((self.root / "staging").iterdir()), [])
         self.assertTrue(all(not Path(source).parent.exists() for source, _ in self.env.downloaded))
 
-    async def test_partial_copy_returns_receipt_and_cleans_staging(self):
+    async def test_partial_copy_raises_and_cleans_staging(self):
         for name, content in (("a", b"copied"), ("b", b"blocked"), ("c", b"not attempted")):
             (self.source / name).write_bytes(content)
         (self.workspace / "result/b").mkdir(parents=True)
-        files, terminal = decode_observation(await self.downloads.get(str(self.source), "result"))
-        self.assertFalse(terminal)
-        self.assertEqual(set(files), {"transfer.json"})
-        receipt = json.loads(files["transfer.json"])
-        error = receipt.pop("error")
-        self.assertIsInstance(error, str)
-        self.assertIn("result/b", error)
-        self.assertNotIn(str(self.root), error)
-        self.assertEqual(receipt, {
-            "status": "partial", "path_local": "result", "path_sandbox": str(self.source),
-            "kind": "directory", "files_copied": 1, "bytes_copied": 6, "files_not_copied": 2,
-        })
+        with self.assertRaises(RuntimeFault) as failed:
+            await self.downloads.get(str(self.source), "result")
+        self.assertEqual(failed.exception.code, "environment_error")
+        self.assertEqual(str(failed.exception), COPY_ERROR)
         self.assertEqual((self.workspace / "result/a").read_bytes(), b"copied")
         self.assertFalse((self.workspace / "result/c").exists())
         self.assertEqual(list((self.root / "staging").iterdir()), [])
@@ -359,43 +360,46 @@ class DownloadExportTests(unittest.IsolatedAsyncioTestCase):
     async def test_copy_without_progress_raises_and_cleans_staging(self):
         (self.source / "a").write_bytes(b"blocked")
         (self.workspace / "result/a").mkdir(parents=True)
-        with self.assertRaises(RuntimeFault):
+        with self.assertRaises(RuntimeFault) as failed:
             await self.downloads.get(str(self.source), "result")
+        self.assertEqual(failed.exception.code, "environment_error")
+        self.assertEqual(str(failed.exception), COPY_ERROR)
         self.assertEqual(list((self.workspace / "result/a").iterdir()), [])
         self.assertEqual(list((self.root / "staging").iterdir()), [])
         self.assertTrue(all(not Path(source).parent.exists() for source, _ in self.env.downloaded))
 
-    async def test_host_cleanup_error_does_not_hide_copy_receipts(self):
+    async def test_host_cleanup_error_does_not_hide_success_receipt(self):
         (self.source / "a").write_bytes(b"copied")
-        (self.source / "b").write_bytes(b"blocked")
-        for status in ("success", "partial"):
-            with self.subTest(status=status):
-                if status == "partial":
-                    (self.workspace / status / "b").mkdir(parents=True)
-                with self.host_cleanup_failure():
-                    with self.assertLogs("terminal_bench.downloads", level="WARNING") as logged:
-                        files, terminal = decode_observation(await self.downloads.get(str(self.source), status))
-                self.assertFalse(terminal)
-                receipt = json.loads(files["transfer.json"])
-                self.assertEqual(receipt["status"], status)
-                self.assertEqual(receipt["files_copied"], 2 if status == "success" else 1)
-                self.assertEqual((self.workspace / status / "a").read_bytes(), b"copied")
-                self.assertTrue(any("Could not clean host download staging directory" in record
-                                    for record in logged.output))
-
-    async def test_host_cleanup_error_preserves_original_copy_error(self):
-        (self.source / "a").write_bytes(b"blocked")
-        (self.workspace / "result/a").mkdir(parents=True)
         with self.host_cleanup_failure():
             with self.assertLogs("terminal_bench.downloads", level="WARNING") as logged:
-                with self.assertRaises(RuntimeFault) as failed:
-                    await self.downloads.get(str(self.source), "result")
-        self.assertEqual(failed.exception.code, "environment_error")
-        self.assertIn("result/a", str(failed.exception))
-        self.assertNotIn("cleanup failed", str(failed.exception))
-        self.assertEqual(list((self.workspace / "result/a").iterdir()), [])
+                files, terminal = decode_observation(await self.downloads.get(str(self.source), "result"))
+        self.assertFalse(terminal)
+        self.assertEqual(json.loads(files["transfer.json"]), {
+            "path_local": "result", "path_sandbox": str(self.source), "kind": "directory",
+            "files": 1, "bytes": 6,
+        })
+        self.assertEqual((self.workspace / "result/a").read_bytes(), b"copied")
         self.assertTrue(any("Could not clean host download staging directory" in record
                             for record in logged.output))
+
+    async def test_host_cleanup_error_preserves_original_copy_error(self):
+        (self.source / "a").write_bytes(b"copied")
+        (self.source / "b").write_bytes(b"blocked")
+        for conflict in ("a", "b"):
+            with self.subTest(conflict=conflict):
+                destination = self.workspace / conflict
+                (destination / conflict).mkdir(parents=True)
+                with self.host_cleanup_failure():
+                    with self.assertLogs("terminal_bench.downloads", level="WARNING") as logged:
+                        with self.assertRaises(RuntimeFault) as failed:
+                            await self.downloads.get(str(self.source), conflict)
+                self.assertEqual(failed.exception.code, "environment_error")
+                self.assertEqual(str(failed.exception), COPY_ERROR)
+                self.assertEqual(list((destination / conflict).iterdir()), [])
+                if conflict == "b":
+                    self.assertEqual((destination / "a").read_bytes(), b"copied")
+                self.assertTrue(any("Could not clean host download staging directory" in record
+                                    for record in logged.output))
 
     async def test_unreadable_missing_links_and_special_sources_do_not_reach_workspace(self):
         real = self.source / "real"

@@ -135,43 +135,35 @@ ownership belongs to the host runtime user, matching the bundled agent's user.
 Destination permissions still apply. Individual files are replaced atomically;
 a directory merge stops at the first failure and may be partial.
 
-The action returns a compact `transfer.json` receipt:
+On success, the action returns a compact `transfer.json` receipt with the same
+fields as `send_path`:
 
 ```json
 {
-  "status": "success",
   "path_sandbox": "/app/results",
   "path_local": "results",
   "kind": "directory",
-  "files_copied": 5,
-  "bytes_copied": 12000
+  "files": 5,
+  "bytes": 12000
 }
 ```
 
-If copying fails after making workspace changes, the action still returns a
-normal observation and advances the step, with a partial receipt:
+If copying into the workspace fails, the action returns an error. The client
+prints:
 
-```json
-{
-  "status": "partial",
-  "path_sandbox": "/app/results",
-  "path_local": "results",
-  "kind": "directory",
-  "files_copied": 2,
-  "files_not_copied": 3,
-  "bytes_copied": 4800,
-  "error": "Could not copy results/c.txt: permission denied."
-}
+```text
+Copy failed; check destination permissions and that its parent directory exists. Some files may have been copied.
 ```
 
-Counts include only completed file copies, including overwrites and empty files.
-`files_not_copied` includes both the failed and unattempted files from the staged
-source. Success receipts omit `files_not_copied` and `error`; neither receipt
-lists individual files. Creating a directory or changing its permissions also
-counts as progress, even with zero files copied. A later directory-permission
-failure can therefore return `partial` with `files_not_copied: 0`. Failures
-before any workspace changes remain action errors. A successful empty-directory
-merge returns `success`, including when nothing needed changing. Cancellation,
+No receipt is returned and the step does not advance, even if some files were
+copied before the failure. Those files and any directory changes remain in the
+workspace; there is no rollback. The session stays usable so the agent can
+inspect the destination and retry. Source-validation errors retain their
+specific messages.
+
+Successful receipts count all copied regular files, including overwrites and
+empty files, and their total bytes. Empty-directory copies have zero files and
+bytes. There is no `status` or error information in the receipt. Cancellation,
 timeouts, or a lost connection can still prevent receipt delivery.
 
 File contents go directly into the shared workspace, so

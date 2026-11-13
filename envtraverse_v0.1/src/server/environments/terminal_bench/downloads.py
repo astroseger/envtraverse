@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import ExitStack
-from dataclasses import dataclass
-import errno
 import json
 import logging
 import os
@@ -31,46 +29,6 @@ from .uploads import Snapshot
 
 LOGGER = logging.getLogger(__name__)
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-
-
-@dataclass(frozen=True)
-class TransferResult(Snapshot):
-    """Committed workspace contents, independent of the staged source totals."""
-    files_not_copied: int = 0
-    error: str | None = None
-
-    @property
-    def status(self) -> str:
-        return "partial" if self.error is not None else "success"
-
-
-@dataclass
-class InstallProgress:
-    files: int = 0
-    size: int = 0
-    changed: bool = False
-    error: str | None = None
-
-
-def copy_failure(exc: OSError | RuntimeFault, path: str, operation: str) -> str:
-    """Describe the workspace-relative target without exposing host/staging paths."""
-    if isinstance(exc, RuntimeFault):
-        reason = str(exc)
-    elif isinstance(exc, PermissionError):
-        reason = "permission denied"
-    else:
-        reason = {
-            errno.ENOENT: "source or destination parent no longer exists",
-            errno.ENOTDIR: "destination ancestor is not a directory or is a symbolic link",
-            errno.ELOOP: "destination contains a symbolic link",
-            errno.EISDIR: "destination is a directory",
-            errno.ENOSPC: "not enough disk space",
-            errno.EDQUOT: "disk quota exceeded",
-            errno.EROFS: "destination filesystem is read-only",
-            errno.ENAMETOOLONG: "path is too long",
-            errno.EIO: "filesystem I/O error",
-        }.get(exc.errno, "filesystem operation failed")
-    return f"Could not {operation} {path}: {reason}."
 
 
 # All variable data is passed as quoted positional arguments. GNU tar writes
@@ -155,21 +113,13 @@ def unpack_export(archive: Path, target: Path, *, directory: bool, root_name: st
 
 
 def install_export(source: Path, workspace: Path, relative: str,
-                   modes: dict[tuple[str, ...], int], cancelled: threading.Event) -> InstallProgress:
+                   modes: dict[tuple[str, ...], int], cancelled: threading.Event) -> None:
     """Merge through directory descriptors; replace files without following links."""
     parts = PurePosixPath(relative).parts
     if PurePosixPath(relative).is_absolute() or ".." in parts:
         raise RuntimeFault("invalid_action", "Destination must stay inside your workspace")
     if source.is_file() and (not parts or relative.rsplit("/", 1)[-1] in {"", "."}):
         raise RuntimeFault("invalid_action", "For a file, path_local must specify a destination filename")
-    progress = InstallProgress()
-    current_path = str(PurePosixPath(relative))
-    operation = "open destination"
-
-    def location(key: tuple[str, ...], verb: str) -> None:
-        nonlocal current_path, operation
-        current_path = str(PurePosixPath(relative).joinpath(*key))
-        operation = verb
 
     def copy_file(path: Path, parent: int, name: str, mode: int) -> None:
         try:
@@ -183,7 +133,6 @@ def install_export(source: Path, workspace: Path, relative: str,
                 raise PermissionError("Destination file is not writable")
         temporary = ".get-path-" + uuid4().hex
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-        copied_size = 0
         try:
             with os.fdopen(fd, "wb") as output, path.open("rb") as input_file:
                 while True:
@@ -192,16 +141,12 @@ def install_export(source: Path, workspace: Path, relative: str,
                     if not block:
                         break
                     output.write(block)
-                    copied_size += len(block)
                 output.flush()
                 os.fchmod(output.fileno(), mode)
             check_cancelled(cancelled)
             # A fresh inode also prevents overwriting another path through an
             # existing destination hard link. Replacement is atomic per file.
             os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-            progress.files += 1
-            progress.size += copied_size
-            progress.changed = True
         finally:
             try:
                 os.unlink(temporary, dir_fd=parent)
@@ -209,23 +154,17 @@ def install_export(source: Path, workspace: Path, relative: str,
                 pass
 
     def copy_directory(path: Path, fd: int, key: tuple[str, ...], *, keep_mode: bool = False) -> None:
-        location(key, "copy directory")
         for child in sorted(path.iterdir()):
             copy_entry(child, fd, child.name, (*key, child.name))
         check_cancelled(cancelled)
         if not keep_mode:
-            location(key, "set directory permissions for")
-            previous_mode = stat.S_IMODE(os.fstat(fd).st_mode)
             os.fchmod(fd, modes[key])
-            progress.changed |= previous_mode != modes[key]
 
     def copy_entry(path: Path, parent: int, name: str, key: tuple[str, ...]) -> None:
         check_cancelled(cancelled)
-        location(key, "copy")
         if path.is_dir():
             try:
                 os.mkdir(name, mode=0o700, dir_fd=parent)
-                progress.changed = True
             except FileExistsError:
                 pass
             fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent)
@@ -256,15 +195,13 @@ def install_export(source: Path, workspace: Path, relative: str,
     except (OSError, RuntimeFault) as exc:
         if cancelled.is_set():
             raise
-        message = copy_failure(exc, current_path, operation)
-        if not progress.changed:
-            raise RuntimeFault("environment_error", message) from exc
-        progress.error = message
-    return progress
+        LOGGER.warning("Workspace download copy failed: %s", exc)
+        raise RuntimeFault("environment_error", "Copy failed; check destination permissions and "
+                           "that its parent directory exists. Some files may have been copied.") from exc
 
 
 def receive_export(archive: Path, workspace: Path, path_local: str, *, directory: bool,
-                   root_name: str, cancelled: threading.Event) -> TransferResult:
+                   root_name: str, cancelled: threading.Event) -> Snapshot:
     try:
         source = archive.parent / "payload"
         snapshot, modes = unpack_export(archive, source, directory=directory,
@@ -274,9 +211,8 @@ def receive_export(archive: Path, workspace: Path, path_local: str, *, directory
             raise
         raise RuntimeFault("invalid_action", "Could not read the sandbox export; keep the source unchanged") from exc
     check_cancelled(cancelled)
-    progress = install_export(source, workspace, path_local, modes, cancelled)
-    return TransferResult(snapshot.directory, progress.size, progress.files,
-                          files_not_copied=snapshot.files - progress.files, error=progress.error)
+    install_export(source, workspace, path_local, modes, cancelled)
+    return snapshot
 
 
 class WorkspaceDownloads:
@@ -334,7 +270,7 @@ chmod 711 -- "$1"
                     receive_export, archive, self.workspace_dir, path_local, directory=kind == "directory",
                     root_name=PurePosixPath(path_sandbox).name, cancelled=cancelled))
                 try:
-                    transfer = await asyncio.shield(copying)
+                    snapshot = await asyncio.shield(copying)
                 except asyncio.CancelledError:
                     cancelled.set()
                     # Never remove staging while its worker thread is using it.
@@ -359,12 +295,8 @@ chmod 711 -- "$1"
             except Exception:
                 LOGGER.exception("Could not clean sandbox download staging directory")
 
-        receipt = {
-            "status": transfer.status,
+        return observation({"transfer.json": json.dumps({
             "path_local": path_local, "path_sandbox": path_sandbox,
-            "kind": "directory" if transfer.directory else "file",
-            "files_copied": transfer.files, "bytes_copied": transfer.size,
-        }
-        if transfer.status == "partial":
-            receipt.update(files_not_copied=transfer.files_not_copied, error=transfer.error)
-        return observation({"transfer.json": json.dumps(receipt, indent=2)})
+            "kind": "directory" if snapshot.directory else "file",
+            "bytes": snapshot.size, "files": snapshot.files,
+        }, indent=2)})

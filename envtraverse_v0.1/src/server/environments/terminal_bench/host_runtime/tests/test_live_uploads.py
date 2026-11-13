@@ -121,23 +121,28 @@ RUN useradd -m -u 12345 -U solver \\
         await self.cli(client, "start", alias)
         return client
 
-    async def cli(self, client, *args, succeeds=True):
+    async def run_cli(self, client, *args):
         process = await asyncio.create_subprocess_exec(
             self.python, str(client["dir"] / "client.py"), *args,
             # Deliberately not the workspace: path_local is workspace-relative.
-            cwd=self.root, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            cwd=self.root, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
-            output, _ = await asyncio.wait_for(process.communicate(), 240)
+            output, errors = await asyncio.wait_for(process.communicate(), 240)
         except BaseException:
             if process.returncode is None:
                 process.kill()
                 await process.wait()
             raise
+        return process.returncode, output.decode(), errors.decode()
+
+    async def cli(self, client, *args, succeeds=True):
+        return_code, stdout, stderr = await self.run_cli(client, *args)
+        output = stdout + stderr
         if succeeds:
-            self.assertEqual(process.returncode, 0, output.decode())
+            self.assertEqual(return_code, 0, output)
         else:
-            self.assertNotEqual(process.returncode, 0, output.decode())
-        return output.decode()
+            self.assertNotEqual(return_code, 0, output)
+        return output
 
     async def move(self, client, action, succeeds=True):
         await self.cli(client, "move", json.dumps(action), succeeds=succeeds)
@@ -165,8 +170,8 @@ RUN useradd -m -u 12345 -U solver \\
         files = await self.get_path(client, "/app/" + name, "downloaded.bin")
         self.assertEqual(set(files), {"transfer.json"})
         self.assertEqual(json.loads(files["transfer.json"]), {
-            "status": "success", "path_local": "downloaded.bin", "path_sandbox": "/app/" + name,
-            "kind": "file", "bytes_copied": len(data), "files_copied": 1})
+            "path_local": "downloaded.bin", "path_sandbox": "/app/" + name,
+            "kind": "file", "bytes": len(data), "files": 1})
         self.assertEqual((workspace / "downloaded.bin").read_bytes(), data)
         self.assertEqual((workspace / "downloaded.bin").stat().st_uid, os.getuid())
 
@@ -227,7 +232,7 @@ RUN useradd -m -u 12345 -U solver \\
     async def test_v12_downloads_respect_dockerfile_user_read_permissions(self):
         await self.exercise_downloads("image")
 
-    async def test_v12_partial_copy_advances_step_and_client_can_continue(self):
+    async def test_v12_partial_copy_reports_error_without_advancing_step_and_can_retry(self):
         await self.start_runtime()
         client = await self.start_client("v1.2")
         workspace = client["workspace"]
@@ -242,20 +247,23 @@ RUN useradd -m -u 12345 -U solver \\
         state_file = client["dir"] / ".client_session.json"
         previous_step = json.loads(state_file.read_text())["step_index"]
 
-        files = await self.get_path(client, "/app/partial", "received")
-        current_step = json.loads(state_file.read_text())["step_index"]
-        self.assertEqual(current_step, previous_step + 1)
-        self.assertEqual(set(files), {"transfer.json"})
-        receipt = json.loads(files["transfer.json"])
-        error = receipt.pop("error")
-        self.assertIn("received/b", error)
-        self.assertNotIn(str(self.root), error)
-        self.assertEqual(receipt, {
-            "status": "partial", "path_local": "received", "path_sandbox": "/app/partial",
-            "kind": "directory", "files_copied": 1, "bytes_copied": 6, "files_not_copied": 2,
-        })
-        artifact = client["observations"] / f"step_{current_step:04d}_transfer.json"
-        self.assertEqual(artifact.read_bytes(), files["transfer.json"])
+        def saved_artifacts():
+            return {path.relative_to(client["observations"]): path.read_bytes()
+                    for path in client["observations"].rglob("*") if path.is_file()}
+
+        async def assert_copy_error(path_local):
+            state_before = state_file.read_bytes()
+            artifacts_before = saved_artifacts()
+            action = {"id": "get_path", "path_sandbox": "/app/partial", "path_local": path_local}
+            return_code, stdout, stderr = await self.run_cli(client, "move", json.dumps(action))
+            self.assertEqual(return_code, 1)
+            self.assertEqual(stdout, "Copy failed; check destination permissions and that its parent "
+                             "directory exists. Some files may have been copied.\n")
+            self.assertEqual(stderr, "")
+            self.assertEqual(state_file.read_bytes(), state_before)
+            self.assertEqual(saved_artifacts(), artifacts_before)
+
+        await assert_copy_error("received")
         self.assertEqual((destination / "a").read_bytes(), b"copied")
         self.assertTrue((destination / "b").is_dir())
         self.assertFalse((destination / "c").exists())
@@ -263,19 +271,21 @@ RUN useradd -m -u 12345 -U solver \\
         # Removing the obstruction allows the same client to continue normally.
         (destination / "b").rmdir()
         files = await self.get_path(client, "/app/partial", "received")
-        self.assertEqual(json.loads(state_file.read_text())["step_index"], current_step + 1)
+        current_step = json.loads(state_file.read_text())["step_index"]
+        self.assertEqual(current_step, previous_step + 1)
+        self.assertEqual(set(files), {"transfer.json"})
         self.assertEqual(json.loads(files["transfer.json"]), {
-            "status": "success", "path_local": "received", "path_sandbox": "/app/partial",
-            "kind": "directory", "files_copied": 3, "bytes_copied": 26,
+            "path_local": "received", "path_sandbox": "/app/partial",
+            "kind": "directory", "files": 3, "bytes": 26,
         })
+        artifact = client["observations"] / f"step_{current_step:04d}_transfer.json"
+        self.assertEqual(artifact.read_bytes(), files["transfer.json"])
         for name in ("a", "b", "c"):
             self.assertEqual((destination / name).read_bytes(), (source / name).read_bytes())
 
         # A failure with no installed files or directory changes stays an error.
         (workspace / "blocked/a").mkdir(parents=True)
-        previous_step = json.loads(state_file.read_text())["step_index"]
-        await self.get_path(client, "/app/partial", "blocked", succeeds=False)
-        self.assertEqual(json.loads(state_file.read_text())["step_index"], previous_step)
+        await assert_copy_error("blocked")
         self.assertEqual({path.name for path in (workspace / "blocked").iterdir()}, {"a"})
         self.assertEqual(list((self.root / "results" / client["alias"] / "downloads").iterdir()), [])
         (workspace / "answer").write_bytes(b"hello from terminal bench\n")
