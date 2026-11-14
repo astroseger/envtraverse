@@ -1,0 +1,4 @@
+You already have all the information you need to solve the problem you're facing. Take some time to think carefully about your options, choose the best approach, and move forward. I'm confident you can make progress!
+
+**Take meaningful actions in the environment now. Do not stop or report back without taking meaningful actions.** Reporting without acting will result in task failure. 
+
