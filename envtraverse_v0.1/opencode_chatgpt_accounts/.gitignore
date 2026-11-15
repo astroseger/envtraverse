@@ -1,0 +1,10 @@
+# Only tooling belongs in Git; account folders, exports and recovery data do not.
+/*
+!/.gitignore
+!/Dockerfile
+!/build_docker.sh
+!/prepare_account.sh
+!/check_account.sh
+!/clean_account.sh
+!/account_tools.py
+!/README.md
