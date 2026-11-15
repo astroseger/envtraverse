@@ -25,7 +25,7 @@ The agent controller starts Codex, supplies prompts, and resumes it as needed.
 Codex uses its workspace and the client to solve the task. The client saves the
 description, actions, and observations, but does not choose a strategy.
 
-All four accept these top-level run-config settings:
+These agents accept the following settings inside `agent_parameters`:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -86,11 +86,13 @@ Return a [LaunchPreparation](../../agent_api.py) with an argv `command`, any
 the server URL and alias to its agent: a configuration file, command arguments,
 or environment variables are all possible.
 
-The full `parsed_run_config` is available to the host hook so it can read the
-agent's settings. Copy only the settings intended for the agent into its
-container: the full mapping also contains private task IDs and environment
-configuration. Use fresh per-task files, and build an image containing only what
-the agent should be able to access.
+The `parsed_run_config` argument contains only the normalized `agent_parameters`
+mapping, despite its historical name. Existing hooks can keep reading keys such
+as `model` directly from it. Root fields such as accounts, private task IDs, and
+environment settings are not passed in that dictionary; the explicit arguments
+above supply the execution context. Custom parameters belong inside
+`agent_parameters`, and each hook decides how to validate and use them. Use fresh
+per-task files and copy only the settings intended for the agent into its container.
 
 Select the package with `agent: <name>` in the run configuration. The supplied
 runners handle task scheduling, servers, networking, and cleanup. The agent

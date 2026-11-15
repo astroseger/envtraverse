@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import run_controller as controller
-import run_controller_oc as legacy_controller
 import run_backends as backends
 import run_funs as rf
 
@@ -237,11 +236,11 @@ class OpenCodeControllerTest(unittest.TestCase):
                 rf.stop_all(games, None, finalize_game=collect)
         collect.assert_called_once_with("second", second)
 
-    def test_default_paths_and_original_accounts_override(self):
-        args = legacy_controller.parse_args([])
-        paths = rf.RunPaths(args.run_root, args.accounts_dir, backend=backends.OPENCODE_CHATGPT,
-                            config_name="run_config_opencode.yaml")
-        self.assertEqual(paths.run_config, ROOT / "run_config_opencode.yaml")
+    def test_shared_paths_explicit_config_and_original_accounts_override(self):
+        args = controller.parse_args(["--run-config", str(ROOT / "run_config_opencode.yaml")])
+        paths = rf.RunPaths(args.run_root, args.accounts_dir, backend=backends.OPENCODE_CHATGPT)
+        self.assertEqual(paths.run_config, ROOT / "run_config.yaml")
+        self.assertEqual(paths.resolve_config(args.run_config), ROOT / "run_config_opencode.yaml")
         self.assertEqual(paths.accounts_dir, ROOT / "opencode_chatgpt_accounts")
         self.assertEqual(paths.run_dir, ROOT / "run")
         self.assertEqual(self.paths.accounts_dir, self.directory / "original accounts,with comma")

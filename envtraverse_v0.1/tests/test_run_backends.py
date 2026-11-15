@@ -19,8 +19,6 @@ sys.path.insert(0, str(ROOT))
 import account_locks
 import run_backends as rb
 import run_controller as controller
-import run_controller_oc as oc_entry
-import run_controller_with_api_key as api_entry
 import run_funs as rf
 
 
@@ -41,9 +39,9 @@ class RunBackendTest(unittest.TestCase):
                              "model": "gpt-5.6-sol", "reasoning_effort": "max",
                          }}
 
-    def parse(self, *, entry=controller, **changes):
+    def parse(self, **changes):
         self.config_file.write_text(yaml.safe_dump({**self.settings, **changes}))
-        return entry.parse_run_config(self.config_file, paths=self.paths)
+        return controller.parse_run_config(self.config_file, paths=self.paths)
 
     def test_backend_defaults_to_legacy_codex(self):
         config = self.parse()
@@ -63,14 +61,6 @@ class RunBackendTest(unittest.TestCase):
         for value in (None, False, [], {}, "codex", ""):
             with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "backend must be"):
                 self.parse(backend=value)
-
-    def test_compatibility_wrappers_force_backend_and_reject_mismatch(self):
-        config = self.parse(entry=oc_entry, agent="opencode_agent_v1_08_wstop3")
-        self.assertEqual(config.backend, rb.OPENCODE_CHATGPT)
-        self.assertEqual(self.parse(entry=api_entry).backend, rb.CODEX_API_KEY)
-        for entry, backend in ((oc_entry, rb.CODEX_CHATGPT), (api_entry, rb.OPENCODE_CHATGPT)):
-            with self.subTest(entry=entry.__name__), self.assertRaisesRegex(RuntimeError, "requires backend"):
-                self.parse(entry=entry, backend=backend)
 
     def test_codex_legacy_account_alias_is_normalized(self):
         self.settings.pop("accounts")

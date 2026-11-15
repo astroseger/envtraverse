@@ -30,11 +30,11 @@ python3 run_controller.py \
   --accounts-dir "$PWD/opencode_chatgpt_accounts"
 ```
 
-Accounts default to `opencode_chatgpt_accounts/` under `--run-root`. The shared
-controller defaults to `run_config.yaml`; the compatibility entry point
-`python3 run_controller_oc.py` still defaults to `run_config_opencode.yaml` and
-selects the OpenCode backend. Configure account names with `accounts: [...]`;
-the older `opencode_accounts` key is rejected. Each account runs one game
+Accounts default to `opencode_chatgpt_accounts/` under `--run-root` when the
+configuration selects `backend: opencode_chatgpt_accounts`. The controller
+defaults to `run_config.yaml`; pass `--run-config run_config_opencode.yaml` to
+select the supplied OpenCode configuration. Configure account names with
+`accounts: [...]`; the older `opencode_accounts` key is rejected. Each account runs one game
 at a time; `max_parallel_games` is only available for the API-key backend.
 
 ## Accounts and sessions

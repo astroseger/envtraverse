@@ -42,12 +42,10 @@ class RunConfig:
         return cast(dict[str, object], self.parsed_run_config["agent_parameters"])
 
 
-def select_backend(config: dict[str, object], *, forced_backend: str | None = None) -> str:
-    backend = config.get("backend", forced_backend or backends.CODEX_CHATGPT)
+def select_backend(config: dict[str, object]) -> str:
+    backend = config.get("backend", backends.CODEX_CHATGPT)
     if not isinstance(backend, str) or backend not in backends.BACKENDS:
         raise RuntimeError("backend must be one of: " + ", ".join(sorted(backends.BACKENDS)))
-    if forced_backend is not None and backend != forced_backend:
-        raise RuntimeError(f"this entry point requires backend {forced_backend}, but config selects {backend}")
     return backend
 
 
@@ -87,10 +85,9 @@ def parse_accounts(config: dict[str, object], backend: str, path: Path) -> list[
     return rf.parse_string_list(config, "accounts", path)
 
 
-def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths(),
-                     forced_backend: str | None = None) -> RunConfig:
+def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
     loaded = rf.load_run_config(path)
-    backend = select_backend(loaded, forced_backend=forced_backend)
+    backend = select_backend(loaded)
     loaded = normalize_run_config(loaded, backend=backend, path=path)
     paths = replace(paths, backend=backend)
     if backend != backends.CODEX_API_KEY and "max_parallel_games" in loaded:
@@ -180,20 +177,19 @@ def run_scheduler(config: RunConfig, container_names: rf.ContainerNames,
     )
 
 
-def parse_args(argv: list[str], *, config_name: str = "run_config.yaml") -> argparse.Namespace:
+def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run games with Codex ChatGPT, OpenCode ChatGPT, or Codex API-key authentication.")
-    rf.add_run_path_arguments(parser, config_name=config_name)
+    rf.add_run_path_arguments(parser)
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None, *, forced_backend: str | None = None,
-         config_name: str = "run_config.yaml") -> int:
-    args = parse_args(sys.argv[1:] if argv is None else argv, config_name=config_name)
-    paths = rf.RunPaths(args.run_root, args.accounts_dir, forced_backend or backends.CODEX_CHATGPT, config_name)
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    paths = rf.RunPaths(args.run_root, args.accounts_dir)
     run_created = False
     try:
         run_config = paths.resolve_config(args.run_config)
-        config = parse_run_config(run_config, paths=paths, forced_backend=forced_backend)
+        config = parse_run_config(run_config, paths=paths)
         paths = config.paths
         backend = backends.create_backend(config)
         backend.authorize()

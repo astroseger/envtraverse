@@ -73,13 +73,19 @@ to integrate a new agent.
 
 ## Current runners
 
-The supplied runners are oriented toward Codex:
+The shared [run_controller.py](run_controller.py) selects authentication through
+the configuration's `backend`: `codex_chatgpt_accounts`,
+`opencode_chatgpt_accounts`, or `codex_openai_api_key`. The independent `agent`
+field selects the agent implementation.
 
-- [run_controller.py](run_controller.py) uses Codex subscription accounts.
-- [run_controller_with_api_key.py](run_controller_with_api_key.py) runs agents
-  using an OpenAI API key, with authentication currently configured for the
-  bundled Codex agents.
-- [run_controller_tb.py](run_controller_tb.py) wraps the subscription runner with
+Runtime agent settings belong in `agent_parameters`, alongside the existing
+`environment_parameters` mapping. The loader still accepts legacy root agent
+settings and `codex_accounts` for the Codex ChatGPT backend.
+
+- ChatGPT backends run one game per account, with shared account locking.
+- The API-key backend accepts `max_parallel_games: all` (the default) or a
+  positive integer. This parameter is rejected for ChatGPT backends.
+- [run_controller_tb.py](run_controller_tb.py) wraps the controller with
   the additional host infrastructure required by Terminal-Bench.
 
 Other providers or local models, including models needing GPU access, require

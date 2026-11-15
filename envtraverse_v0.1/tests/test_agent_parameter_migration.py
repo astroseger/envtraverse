@@ -14,8 +14,6 @@ sys.path.insert(0, str(ROOT))
 
 import run_backends as rb
 import run_controller as controller
-import run_controller_oc as oc_controller
-import run_controller_with_api_key as api_controller
 import run_funs as rf
 
 
@@ -47,13 +45,13 @@ class AgentParameterMigrationTest(unittest.TestCase):
         oc_account.mkdir(parents=True)
         (oc_account / "opencode.db").touch()
 
-    def normalize(self, settings, *, forced_backend=None):
-        backend = controller.select_backend(settings, forced_backend=forced_backend)
+    def normalize(self, settings):
+        backend = controller.select_backend(settings)
         return controller.normalize_run_config(settings, backend=backend, path=self.config_path)
 
-    def parse(self, settings, *, entrypoint=controller):
+    def parse(self, settings):
         self.config_path.write_text(yaml.safe_dump(settings), encoding="utf-8")
-        return entrypoint.parse_run_config(self.config_path, paths=self.paths)
+        return controller.parse_run_config(self.config_path, paths=self.paths)
 
     def base_config(self, backend=rb.CODEX_CHATGPT):
         settings = {
@@ -189,21 +187,19 @@ class AgentParameterMigrationTest(unittest.TestCase):
                 ):
                     self.normalize({"backend": backend, key: value})
 
-    def test_forced_backend_wrappers_do_not_enable_legacy_migration_when_backend_is_missing(self) -> None:
-        for backend, entrypoint in ((rb.OPENCODE_CHATGPT, oc_controller), (rb.CODEX_API_KEY, api_controller)):
+    def test_explicit_non_codex_backends_reject_legacy_fields_during_parsing(self) -> None:
+        for backend in (rb.OPENCODE_CHATGPT, rb.CODEX_API_KEY):
             for key, value in {**LEGACY_AGENT_PARAMETERS, "codex_accounts": ["test_account"]}.items():
                 settings = self.base_config(backend)
-                settings.pop("backend")
                 settings[key] = value
                 with self.subTest(backend=backend, key=key), self.assertRaisesRegex(RuntimeError, key):
-                    self.parse(settings, entrypoint=entrypoint)
+                    self.parse(settings)
 
-    def test_canonical_configs_work_through_forced_backend_wrappers(self) -> None:
-        for backend, entrypoint in ((rb.OPENCODE_CHATGPT, oc_controller), (rb.CODEX_API_KEY, api_controller)):
+    def test_canonical_configs_select_backend_from_yaml(self) -> None:
+        for backend in sorted(rb.BACKENDS):
             settings = self.base_config(backend)
-            settings.pop("backend")
             with self.subTest(backend=backend):
-                config = self.parse(settings, entrypoint=entrypoint)
+                config = self.parse(settings)
                 self.assertEqual(config.backend, backend)
                 self.assertEqual(config.parsed_run_config["backend"], backend)
                 self.assertIs(config.agent_parameters, config.parsed_run_config["agent_parameters"])

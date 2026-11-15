@@ -34,6 +34,10 @@ The supplied small configuration is:
 
 ```yaml
 agent: agent_v1
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
+  codex_account_fast_service_tier: true
 environment: terminal_bench
 environment_parameters:
   environment_version: "v1.2"
@@ -43,10 +47,7 @@ server_mounts:
 games:
   - terminal-bench-2.1-fix-git
   - terminal-bench-2.1-regex-log
-codex_accounts: [codex01]
-codex_account_fast_service_tier: true
-model: gpt-5.6-sol
-reasoning_effort: max
+accounts: [codex01]
 ```
 
 Keep the socket mount; its source is relative to the selected run root, which
@@ -90,7 +91,7 @@ python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_te
 The supplied [Science configuration](run_config_terminal_bench_science_0.1.yaml) lists the published
 `v0.1.0` tasks using slash-separated IDs. It selects `agent_v1_08_wstop3`, with
 `http_read_timeout_seconds: 36300` (10 hours 5 minutes) and
-`supervisor_inactivity_timeout_seconds: 39600` (11 hours) to accommodate long
+`supervisor_inactivity_timeout_seconds: 39600` (11 hours) in `agent_parameters` to accommodate long
 initialization. The Terminal-Bench manager defaults to no socket timeout;
 Harbor's native task time budgets still apply. Fast service tier is disabled.
 
@@ -102,7 +103,7 @@ configuration still selects the tasks to execute: `all` prepares every dataset
 and runs the configured games. Omitting the option retains default TB2.1 setup.
 
 Always pass the intended configuration: without `--run-config`, the wrapper uses
-`run_config.yaml`. Concurrency follows `codex_accounts`. Grading can overlap later
+`run_config.yaml`. Concurrency follows `accounts`. Grading can overlap later
 tasks, so host task containers may outnumber active agents.
 
 ## Find task IDs
@@ -129,23 +130,28 @@ selection to setup.
 
 ## API-key runs and manual runtime
 
-The wrapper uses subscription accounts. For an API-key experiment, first run
-`setup.sh` as above. In one terminal, start the runtime:
+The configuration's `backend` selects authentication. To run an API-key
+experiment with a manually managed runtime, first run `setup.sh` as above.
+In one terminal, start the runtime:
 
 ```bash
 ./src/server/environments/terminal_bench/host_runtime/run.sh
 ```
 
-Wait for `Runtime ready` and leave that terminal running. In another terminal:
+Wait for `Runtime ready` and leave that terminal running. Set
+`backend: codex_openai_api_key` in `run_config_terminal_bench.yaml`, then run in
+another terminal:
 
 ```bash
 export OPENAI_API_KEY='your-openai-api-key'
-python3 run_controller_with_api_key.py --run-config run_config_terminal_bench.yaml
+python3 run_controller.py --run-config run_config_terminal_bench.yaml
 ```
 
-The API-key runner allows all listed tasks to run concurrently and ignores
-`codex_accounts`. Use a task list that fits the host's resources. For manual
-subscription runs, use `run_controller.py` in the second terminal instead.
+Use nested `agent_parameters`; legacy root settings and `codex_accounts` are
+rejected for the API-key backend. The canonical `accounts` list is unused. It
+allows all listed tasks to run concurrently by default; add
+`max_parallel_games: 2` to cap active games. For manual subscription runs, set
+`backend: codex_chatgpt_accounts` and use the same controller command.
 
 For an external experiment, pass the same `--run-root /path/to/experiment` to
 both `host_runtime/run.sh` and the controller. The runtime's socket, results,
