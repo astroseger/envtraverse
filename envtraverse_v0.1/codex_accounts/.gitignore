@@ -1,0 +1,5 @@
+# Account directories contain credentials and local state.
+/*/
+
+# Account lock files remain after their OS locks are released.
+*.lock

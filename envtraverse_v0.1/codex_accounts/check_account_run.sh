@@ -9,12 +9,14 @@ fi
 codex_home=$1
 shift
 
-if [ ! -d "$codex_home" ]; then
+if [ -L "$codex_home" ] || [ ! -d "$codex_home" ]; then
   echo "Error: folder does not exist: $codex_home" >&2
   exit 1
 fi
 
 codex_home_abs=$(cd "$codex_home" && pwd -P)
+source "$(dirname -- "${BASH_SOURCE[0]}")/account_lock.sh"
+codex_lock_account "$codex_home_abs"
 run_dir_abs=$(pwd -P)
 
 CODEX_ACCOUNTS_IMAGE=$(

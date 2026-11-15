@@ -69,19 +69,6 @@ if [ -d "./$account_name" ]; then
   exit 0
 fi
 
-if ps_output=$(ps -aux | grep -- "$account_name" | grep codex_account | grep -v grep | grep -v "find_and_move_account.sh" || true); then
-  :
-else
-  echo "Error: failed to check running processes for account: $account_name" >&2
-  exit 1
-fi
-
-if [ -n "$ps_output" ]; then
-  echo "Error: account appears to be in use by a codex_account process: $account_name" >&2
-  printf '%s\n' "$ps_output" >&2
-  exit 1
-fi
-
 prune_names=(-name "${ignore_names[0]}")
 for ignore_name in "${ignore_names[@]:1}"; do
   prune_names+=(-o -name "$ignore_name")
@@ -110,9 +97,26 @@ if [ ! -d "$source_path" ]; then
   exit 1
 fi
 
-if [ -e "./$account_name" ]; then
-  echo "Error: destination already exists: ./$account_name" >&2
+source_path=$(cd "$source_path" && pwd -P)
+destination_path="$(pwd -P)/$(basename -- "$source_path")"
+if [ "$source_path" = "$destination_path" ]; then
+  printf 'Account folder already in place: %s\n' "$destination_path"
+  exit 0
+fi
+
+# Retain both sibling locks across the move, including across filesystems.
+source "$(dirname -- "${BASH_SOURCE[0]}")/account_lock.sh"
+codex_lock_account "$source_path"
+source_lock_fd=$CODEX_ACCOUNT_LOCK_FD
+codex_lock_account "$destination_path"
+
+if [ ! -d "$source_path" ]; then
+  echo "Error: source account disappeared: $source_path" >&2
+  exit 1
+fi
+if [ -e "$destination_path" ] || [ -L "$destination_path" ]; then
+  echo "Error: destination already exists: $destination_path" >&2
   exit 1
 fi
 
-mv -- "$source_path" ./
+mv -- "$source_path" "$destination_path"

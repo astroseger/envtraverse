@@ -1,5 +1,7 @@
 # Account tools
 
+Requires Linux, Bash, Python 3.10+, Docker, and `flock`.
+
 Account commands automatically build the shared account-tools image if it is
 missing. To build it ahead of time (or do nothing if it already exists):
 
@@ -37,3 +39,24 @@ they do not remove this account image. Their account checks may build it if
 missing, just like standalone account commands. Run `build_docker.sh` without
 arguments to rebuild it manually; manual builds use the same lock. Updating it
 does not test or change the Codex version in an experiment image.
+
+## Account locking
+
+The controller and prepare/check/clean/interactive account commands take an
+exclusive OS lock on the sibling `.<account>.codex.lock` file. An account already
+in use fails immediately. The controller holds its locks across preflight,
+cleanup, games, and shutdown; its helper processes inherit the same lock.
+Locks are released when their owning processes close the descriptors or exit.
+The lock files remain on disk and must not be removed to unlock an account.
+
+Before using an account, the tools also check for active Docker containers
+mounting that account or a file inside it. This catches containers left running
+after a controller crash. Stop the identified container, then retry; Codex has
+no persistent recovery marker to clear. These checks do not inspect credentials
+or copy account data. Direct Codex/Docker commands must still coordinate account
+use themselves because OS locks are advisory.
+
+`clean_account.sh` preserves the existing `auth.json` and resets other account
+state. The controller invokes it before each fresh game. Account movement uses
+source and destination locks so a running account cannot be moved by
+`find_and_move_account.sh`.

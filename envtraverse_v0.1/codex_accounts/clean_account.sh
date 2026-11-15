@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <codex-home-path>" >&2
+if [ "$#" -ne 1 ] && { [ "$#" -ne 3 ] || [ "${2:-}" != "--lock-fd" ]; }; then
+  echo "Usage: $0 <codex-home-path> [--lock-fd FD]" >&2
   exit 2
 fi
 
 codex_home=$1
+inherited_lock_fd=${3:-}
+if [ "$#" -eq 3 ] && [[ ! "$inherited_lock_fd" =~ ^[0-9]+$ ]]; then
+  echo "Error: --lock-fd must be a non-negative integer" >&2
+  exit 2
+fi
 
-if [ ! -d "$codex_home" ]; then
+if [ -L "$codex_home" ] || [ ! -d "$codex_home" ]; then
   echo "Error: folder does not exist: $codex_home" >&2
   exit 1
 fi
@@ -19,6 +24,9 @@ if [ "$codex_home_abs" = "/" ]; then
   echo "Error: refusing to clean root directory" >&2
   exit 1
 fi
+
+source "$(dirname -- "${BASH_SOURCE[0]}")/account_lock.sh"
+codex_lock_account "$codex_home_abs" "$inherited_lock_fd"
 
 if [ ! -f "$codex_home_abs/auth.json" ]; then
   echo "Error: auth.json does not exist in account folder: $codex_home_abs" >&2
