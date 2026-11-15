@@ -1,8 +1,11 @@
 agent: agent_v1_08_wstop3
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
+  http_read_timeout_seconds: 36300             # 10 hours 5 minutes
+  supervisor_inactivity_timeout_seconds: 39600  # 11 hours
 agent_docker_build_args:
   CODEX_VERSION: "0.166.0"
-http_read_timeout_seconds: 36300             # 10 hours 5 minutes
-supervisor_inactivity_timeout_seconds: 39600  # 11 hours
 environment: terminal_bench
 environment_parameters:
   environment_version: "v1.2"
@@ -79,6 +82,4 @@ games:
   - terminal-bench-4.0-wal-recovery-ordering
   - terminal-bench-4.0-wdm-design
 
-codex_accounts: [codex01]
-model: gpt-5.6-sol
-reasoning_effort: max
+accounts: [codex01]

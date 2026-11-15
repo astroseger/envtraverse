@@ -1,4 +1,8 @@
 agent: agent_v1
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
+  codex_account_fast_service_tier: true
 environment: terminal_bench
 environment_parameters:
   environment_version: "v1.2"
@@ -98,7 +102,4 @@ games:
   - terminal-bench-2.1-winning-avg-corewars
   - terminal-bench-2.1-write-compressor
 
-codex_accounts: [codex01]
-codex_account_fast_service_tier: true
-model: gpt-5.6-sol
-reasoning_effort: max
+accounts: [codex01]

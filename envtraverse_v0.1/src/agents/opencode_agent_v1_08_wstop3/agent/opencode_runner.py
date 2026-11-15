@@ -79,7 +79,7 @@ class OpenCodeRunner:
                     ["opencode", "api", "session.get", "--param",
                      f"sessionID={self.current_session_id}", "--standalone"],
                     stdout=subprocess.DEVNULL, stderr=errors, stdin=subprocess.DEVNULL,
-                    cwd=self.work_dir, env=environment, check=True, timeout=60,
+                    cwd=self.work_dir, env=environment, check=True, timeout=600,
                 )
             command += ["--session", self.current_session_id]
         self._run_command_once(command, prompt, environment)
@@ -104,7 +104,7 @@ class OpenCodeRunner:
             process.wait()
 
     def _run_command_once(self, command: list[str], prompt: str, environment: dict[str, str]) -> None:
-        with (self.log_file.open("a", encoding="utf-8") as progress,
+        with (self.log_file.open("a", encoding="utf-8") as log,
               self.events_log_file.open("a", encoding="utf-8") as events,
               self.stderr_log_file.open("a", encoding="utf-8") as errors):
             process = subprocess.Popen(
@@ -124,6 +124,10 @@ class OpenCodeRunner:
                 process.stdin.write(prompt)
                 process.stdin.close()
                 for line in process.stdout:
+                    # Every stdout line counts as activity for the supervisor,
+                    # including retries, background waits, and non-JSON output.
+                    log.write(line)
+                    log.flush()
                     events.write(line)
                     events.flush()
                     sys.stdout.write(line)
@@ -145,11 +149,6 @@ class OpenCodeRunner:
                     kind = event.get("type")
                     if kind == "error":
                         reported_error = True
-                    # Retry/background-wait diagnostics must not keep the
-                    # supervisor's agent.log inactivity clock alive.
-                    if kind in {"step_start", "step_finish", "tool_use", "text", "reasoning"}:
-                        progress.write(line)
-                        progress.flush()
                 return_code = process.wait()
             except BaseException:
                 self._stop(process)

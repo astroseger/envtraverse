@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from dataclasses import asdict
 import json
 import os
@@ -15,8 +15,8 @@ from unittest.mock import Mock, call, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import run_controller as accounts_controller
-import run_controller_with_api_key as api_controller
+import run_controller as controller
+import run_backends as rb
 import run_funs as rf
 
 
@@ -111,31 +111,35 @@ class RunImagesTest(unittest.TestCase):
         self.remove.assert_called_once()
         self.assertEqual({number: signal.getsignal(number) for number in previous}, previous)
 
-    def test_both_controllers_keep_images_alive_for_account_checks_and_scheduler(self) -> None:
-        for controller in (accounts_controller, api_controller):
-            with self.subTest(controller=controller.__name__), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-                paths = rf.RunPaths(Path(directory))
+    def test_both_backends_keep_images_alive_for_account_checks_and_scheduler(self) -> None:
+        for backend_name in (rb.CODEX_CHATGPT, rb.CODEX_API_KEY):
+            with self.subTest(backend=backend_name), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                paths = rf.RunPaths(Path(directory), backend=backend_name)
                 paths.run_dir.mkdir()
                 config = dict(
                     games=["counter"], environment=rf.EnvironmentConfig("example", {}, []),
-                    agent="agent_v1_08_wstop3", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
+                    backend=backend_name, agent="agent_v1_08_wstop3", parsed_run_config={
+                        "agent_parameters": {"model": "test-model", "reasoning_effort": "medium"},
+                    },
                     agent_docker_build_args={"CODEX_VERSION": "0.153.4"}, paths=paths,
                 )
-                if controller is accounts_controller:
+                if backend_name == rb.CODEX_CHATGPT:
                     config["accounts"] = ["codex01"]
                 config = controller.RunConfig(**config)
                 stack.enter_context(patch.object(controller, "parse_run_config", return_value=config))
+                stack.enter_context(patch.object(rb.RunBackend, "reserve", return_value=nullcontext()))
                 stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}))
                 for name in ("verify_container_names_available", "verify_network_names_available", "prepare_run_root", "setup_runner_logging", "make_run_writable"):
                     stack.enter_context(patch.object(rf, name))
-                if controller is api_controller:
-                    stack.enter_context(patch.object(controller, "confirm_api_key_run"))
-                preflight = "verify_codex_accounts" if controller is accounts_controller else "verify_codex_api_key"
+                if backend_name == rb.CODEX_API_KEY:
+                    stack.enter_context(patch.object(rb, "confirm_api_key_run"))
+                preflight = "verify_codex_accounts" if backend_name == rb.CODEX_CHATGPT else "verify_codex_api_key"
                 self.remove.reset_mock()
-                stack.enter_context(patch.object(controller, preflight, side_effect=lambda *_args: self.remove.assert_not_called()))
+                stack.enter_context(patch.object(rb, preflight, side_effect=lambda *_args: self.remove.assert_not_called()))
 
-                def schedule(*_args, images):
+                def schedule(*_args, images, backend):
                     self.remove.assert_not_called()
+                    self.assertIs(backend.config, config)
                     self.assertEqual(self.build.call_args.args[2], images)
                     self.assertEqual(self.build.call_args.kwargs,
                                      {"agent_docker_build_args": {"CODEX_VERSION": "0.153.4"}})
@@ -220,15 +224,21 @@ class BuildInterruptionTest(unittest.TestCase):
 
 class QueuedImagePinningTest(unittest.TestCase):
     def test_queued_games_use_their_run_image_when_another_run_builds(self) -> None:
-        for controller in (accounts_controller, api_controller):
-            with self.subTest(controller=controller.__name__), ExitStack() as stack:
+        for backend_name in (rb.CODEX_CHATGPT, rb.CODEX_API_KEY):
+            with self.subTest(backend=backend_name), ExitStack() as stack:
                 config = dict(
                     games=["first", "second", "third"], environment=rf.EnvironmentConfig("example", {}, []),
-                    agent="agent_v1", parsed_run_config={"model": "test-model", "reasoning_effort": "medium"},
+                    backend=backend_name, agent="agent_v1", parsed_run_config={
+                        "agent_parameters": {"model": "test-model", "reasoning_effort": "medium"},
+                    },
                 )
-                if controller is accounts_controller:
+                if backend_name == rb.CODEX_CHATGPT:
                     config["accounts"] = ["codex01"]
+                else:
+                    config["max_parallel_games"] = 1
                 config = controller.RunConfig(**config)
+                backend = rb.create_backend(config)
+                backend.account_locks = {"codex01": 123}
                 first, second = rf.RunImages.create(), rf.RunImages.create()
                 image_store = {first.agent: "first-build"}
                 launched = []
@@ -246,15 +256,15 @@ class QueuedImagePinningTest(unittest.TestCase):
                 stack.enter_context(patch.object(rf.time, "sleep"))
                 stack.enter_context(patch.object(rf, "prepare_game_directory"))
                 stack.enter_context(patch.object(rf, "prepare_agent_run", return_value=rf.LaunchPreparation(["python3", "agent_runner.py"])))
-                if controller is accounts_controller:
-                    stack.enter_context(patch.object(controller, "clean_codex_account"))
+                if backend_name == rb.CODEX_CHATGPT:
+                    stack.enter_context(patch.object(rb, "clean_codex_account"))
                 stack.enter_context(patch.object(rf, "health_check_ok", return_value=True))
                 for name in ("start_proxy", "start_server"):
                     stack.enter_context(patch.object(rf, name, return_value=Mock(process=Mock(poll=Mock(return_value=None)))))
                 stack.enter_context(patch.object(controller.subprocess, "Popen", side_effect=launch))
                 names = rf.build_container_names(config.games)
                 mapping = {f"alias-{game}": game for game in config.games}
-                self.assertEqual(controller.run_scheduler(config, names, mapping, images=first), 0)
+                self.assertEqual(controller.run_scheduler(config, names, mapping, images=first, backend=backend), 0)
                 self.assertEqual(launched, ["first-build"] * 3)
 
 

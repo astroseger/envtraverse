@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import run_controller as accounts_controller
-import run_controller_with_api_key as api_controller
+import run_backends as rb
 import run_funs as rf
 
-CONTROLLERS = (accounts_controller, api_controller)
+CONTROLLERS = (accounts_controller,)
 
 
 class RunConfigurationTest(unittest.TestCase):
@@ -31,7 +31,7 @@ class RunConfigurationTest(unittest.TestCase):
         (accounts / "codex01").mkdir(parents=True)
 
     def write_config(self, **settings):
-        config = {"agent": "agent_v1", "environment": "example", "games": ["counter"], "codex_accounts": ["codex01"]}
+        config = {"agent": "agent_v1", "environment": "example", "games": ["counter"], "backend": rb.CODEX_CHATGPT, "accounts": ["codex01"]}
         config.update(settings)
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
         return config
@@ -62,18 +62,18 @@ class RunConfigurationTest(unittest.TestCase):
         fake_agent = self.directory / "src/agents/agent_v1_08_wstop3"
         fake_agent.mkdir(parents=True)
         (fake_agent / "Dockerfile").write_text("FROM scratch\nARG WRONG_VERSION\n")
-        self.write_config(agent="agent_v1_08_wstop3", codex_accounts=["external_only"],
+        self.write_config(agent="agent_v1_08_wstop3", accounts=["external_only"],
                           agent_docker_build_args={"CODEX_VERSION": "0.166.0"})
         for controller in CONTROLLERS:
             config = controller.parse_run_config(self.config_path, paths=self.paths)
             self.assertEqual(config.paths, self.paths)
             self.assertEqual(config.agent_docker_build_args, {"CODEX_VERSION": "0.166.0"})
         self.assertEqual(rf.agent_directory("agent_v1_08_wstop3"), ROOT / "src/agents/agent_v1_08_wstop3")
-        self.assertEqual(accounts_controller.CHECK_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/check_account.sh")
-        self.assertEqual(accounts_controller.CLEAN_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/clean_account.sh")
-        self.assertEqual(api_controller.CHECK_CODEX_API_KEY_SCRIPT, ROOT / "codex_accounts/check_codex_with_api_key.sh")
+        self.assertEqual(rb.CHECK_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/check_account.sh")
+        self.assertEqual(rb.CLEAN_CODEX_ACCOUNT_SCRIPT, ROOT / "codex_accounts/clean_account.sh")
+        self.assertEqual(rb.CHECK_CODEX_API_KEY_SCRIPT, ROOT / "codex_accounts/check_codex_with_api_key.sh")
 
-    def test_both_controllers_parse_each_environment_without_loading_its_dependencies(self) -> None:
+    def test_shared_controller_parse_each_environment_without_loading_its_dependencies(self) -> None:
         with patch.dict(sys.modules, {"arc_agi": None, "arcengine": None}):
             for name, game, parameters in (
                 ("arc3", "ls20", {"competition": False, "tag": "api-test"}),
@@ -95,8 +95,9 @@ class RunConfigurationTest(unittest.TestCase):
                 config.environment,
                 rf.EnvironmentConfig("arc3", {"competition": False, "tag": "api-test"}, ["ARC_API_KEY"]),
             )
-            self.assertEqual(config.parsed_run_config["model"], "gpt-5.6-sol")
-            self.assertEqual(config.parsed_run_config["reasoning_effort"], "max")
+            self.assertEqual(config.agent_parameters["model"], "gpt-5.6-sol")
+            self.assertEqual(config.agent_parameters["reasoning_effort"], "max")
+            self.assertNotIn("model", config.parsed_run_config)
 
     def test_parameters_and_variable_allowlist_default_to_empty(self) -> None:
         self.write_config()
@@ -104,7 +105,19 @@ class RunConfigurationTest(unittest.TestCase):
             for controller in CONTROLLERS:
                 config = controller.parse_run_config(self.config_path, paths=self.paths)
                 self.assertEqual(config.environment, rf.EnvironmentConfig("example", {}, []))
+                self.assertEqual(config.agent_parameters, {})
+                self.assertIs(config.agent_parameters, config.parsed_run_config["agent_parameters"])
                 rf.verify_environment_variables(config.environment)
+
+    def test_api_backend_uses_the_shared_parser_without_an_account_pool(self) -> None:
+        settings = self.write_config(backend=rb.CODEX_API_KEY)
+        settings.pop("accounts")
+        self.config_path.write_text(yaml.safe_dump(settings), encoding="utf-8")
+        config = accounts_controller.parse_run_config(self.config_path, paths=self.paths)
+        self.assertEqual(config.backend, rb.CODEX_API_KEY)
+        self.assertEqual(config.accounts, [])
+        self.assertEqual(config.environment, rf.EnvironmentConfig("example", {}, []))
+        self.assertEqual(config.max_parallel_games, "all")
 
     def test_runner_defaults_preserve_existing_byte_limits(self) -> None:
         expected = rf.RunnerConfig(10737418240, 2147483648, 2147483648)
@@ -122,7 +135,7 @@ class RunConfigurationTest(unittest.TestCase):
                     with self.subTest(agent=agent, settings=settings, controller=controller.__name__):
                         self.assertEqual(controller.parse_run_config(self.config_path, paths=self.paths).agent_docker_build_args, {})
 
-    def test_both_controllers_accept_codex_version_for_opted_in_agents(self) -> None:
+    def test_shared_controller_accept_codex_version_for_opted_in_agents(self) -> None:
         arguments = {"CODEX_VERSION": "0.153.4"}
         for agent in ("agent_v1", "agent_v1_01_wstop", "agent_v1_08_wstop3"):
             self.write_config(agent=agent, agent_docker_build_args=arguments)
@@ -178,8 +191,8 @@ class RunConfigurationTest(unittest.TestCase):
         for controller in CONTROLLERS:
             config = controller.parse_run_config(ROOT / "run_config.yaml", paths=self.paths)
             self.assertNotIn("runner", config.parsed_run_config)
-            self.assertNotIn("recovery_delay_seconds", config.parsed_run_config)
-            self.assertNotIn("max_recovery_attempts", config.parsed_run_config)
+            self.assertNotIn("recovery_delay_seconds", config.agent_parameters)
+            self.assertNotIn("max_recovery_attempts", config.agent_parameters)
             self.assertEqual(config.runner, rf.RunnerConfig())
 
     def test_runner_accepts_fractions_and_defaults_each_missing_setting(self) -> None:
@@ -231,14 +244,15 @@ class RunConfigurationTest(unittest.TestCase):
         self.assertIs(accounts_controller.parse_run_config(self.config_path, paths=self.paths).codex_account_fast_service_tier, False)
         for enabled in (True, False):
             with self.subTest(enabled=enabled):
-                self.write_config(codex_account_fast_service_tier=enabled)
+                self.write_config(agent_parameters={"codex_account_fast_service_tier": enabled})
                 config = accounts_controller.parse_run_config(self.config_path, paths=self.paths)
                 self.assertIs(config.codex_account_fast_service_tier, enabled)
+                self.assertIs(config.agent_parameters["codex_account_fast_service_tier"], enabled)
 
     def test_account_fast_service_tier_rejects_non_booleans(self) -> None:
         for value in (None, 0, 1, "true", "false", [], {}):
             with self.subTest(value=value):
-                self.write_config(codex_account_fast_service_tier=value)
+                self.write_config(agent_parameters={"codex_account_fast_service_tier": value})
                 with self.assertRaisesRegex(RuntimeError, "codex_account_fast_service_tier.*must be a boolean"):
                     accounts_controller.parse_run_config(self.config_path, paths=self.paths)
 
@@ -329,7 +343,7 @@ class RunConfigurationTest(unittest.TestCase):
             self.assertEqual(config.variables, ["API_KEY", "EMPTY_SETTING"])
             self.assertNotIn("private-value", repr(config))
 
-    def test_both_controllers_resolve_server_mounts_from_run_root(self) -> None:
+    def test_shared_controller_resolve_server_mounts_from_run_root(self) -> None:
         socket_dir = self.directory / "run_tb" / "socket with spaces"
         socket_dir.mkdir(parents=True)
         self.write_config(environment="terminal_bench", games=["terminal-bench-2.1-fix-git"],

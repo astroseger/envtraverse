@@ -1,6 +1,7 @@
 agent: agent_v1
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
 environment: agimaze_single
 games: [EXTENDED/grenades/STAGE-08-7x7/0005.json]
-codex_accounts: [codex01]
-model: gpt-5.6-sol
-reasoning_effort: max
+accounts: [codex01]

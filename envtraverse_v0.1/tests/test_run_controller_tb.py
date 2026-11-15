@@ -291,6 +291,16 @@ class TerminalBenchControllerTests(unittest.TestCase):
         controller = next(event for event in self.events() if event["event"] == "controller_started")
         self.assertEqual(controller["args"], ["--run-root", str(experiment), "--run-config", str(config)])
 
+    def test_external_account_directory_is_forwarded_to_controller_only(self):
+        accounts = self.outside / "original accounts"
+        accounts.mkdir()
+        process = self.start(arguments=["--accounts-dir", accounts.name])
+        self.finish(process)
+        controller = next(event for event in self.events() if event["event"] == "controller_started")
+        self.assertEqual(controller["args"][-2:], ["--accounts-dir", str(accounts)])
+        runtime = next(event for event in self.events() if event["event"] == "runtime_started")
+        self.assertNotIn("--accounts-dir", runtime["args"])
+
     def test_external_run_root_rejects_existing_outputs_before_setup(self):
         experiment = self.outside / "experiment"
         experiment.mkdir()

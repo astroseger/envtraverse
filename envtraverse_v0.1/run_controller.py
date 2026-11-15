@@ -1,288 +1,224 @@
 #!/usr/bin/env python3
+"""Run experiments with a selected Codex or OpenCode authentication backend."""
 from __future__ import annotations
 
 import argparse
-import os
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 import subprocess
 import sys
-from dataclasses import dataclass, field
-from pathlib import Path
+from typing import cast
 
+import run_backends as backends
 import run_funs as rf
 
 
-CHECK_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNT_SCRIPTS_DIR / "check_account.sh"
-CLEAN_CODEX_ACCOUNT_SCRIPT = rf.CODEX_ACCOUNT_SCRIPTS_DIR / "clean_account.sh"
+LEGACY_AGENT_PARAMETERS = (
+    "model", "reasoning_effort", "http_read_timeout_seconds",
+    "supervisor_inactivity_timeout_seconds", "recovery_delay_seconds",
+    "max_recovery_attempts", "codex_account_fast_service_tier",
+)
+OPENCODE_AGENT_PARAMETERS = (
+    "opencode_thinking", "opencode_agent", "opencode_shell_timeout_background",
+)
 
 
 @dataclass(frozen=True)
 class RunConfig:
-    accounts: list[str]
     games: list[str]
     environment: rf.EnvironmentConfig
     agent: str
     parsed_run_config: dict[str, object]
+    backend: str = backends.CODEX_CHATGPT
+    accounts: list[str] = field(default_factory=list)
+    max_parallel_games: str | int = "all"
     codex_account_fast_service_tier: bool = False
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
     paths: rf.RunPaths = rf.RunPaths()
 
+    @property
+    def agent_parameters(self) -> dict[str, object]:
+        return cast(dict[str, object], self.parsed_run_config["agent_parameters"])
 
-def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
-    loaded_config = rf.load_run_config(path)
-    runner = rf.parse_runner_config(loaded_config, path)
-    environment = rf.parse_environment_config(loaded_config, path, paths=paths)
-    accounts = rf.parse_string_list(loaded_config, "codex_accounts", path)
-    games = rf.parse_string_list(loaded_config, "games", path)
-    agent = rf.parse_agent_name(loaded_config, path)
-    agent_docker_build_args = rf.parse_agent_docker_build_args(loaded_config, path)
-    fast_service_tier = loaded_config.get("codex_account_fast_service_tier", False)
-    if not isinstance(fast_service_tier, bool):
-        raise RuntimeError(f"codex_account_fast_service_tier in {path} must be a boolean")
+
+def select_backend(config: dict[str, object], *, forced_backend: str | None = None) -> str:
+    backend = config.get("backend", forced_backend or backends.CODEX_CHATGPT)
+    if not isinstance(backend, str) or backend not in backends.BACKENDS:
+        raise RuntimeError("backend must be one of: " + ", ".join(sorted(backends.BACKENDS)))
+    if forced_backend is not None and backend != forced_backend:
+        raise RuntimeError(f"this entry point requires backend {forced_backend}, but config selects {backend}")
+    return backend
+
+
+def normalize_run_config(loaded: dict[str, object], *, backend: str, path: Path) -> dict[str, object]:
+    """Convert supported legacy Codex settings to the canonical configuration."""
+    normalized = dict(loaded)
+    parameters = normalized.get("agent_parameters", {})
+    if not isinstance(parameters, dict):
+        raise RuntimeError(f"agent_parameters in {path} must be a mapping")
+    parameters = dict(parameters)
+    normalized["agent_parameters"] = parameters
+    normalized["backend"] = backend
+
+    for alias in ("codex_accounts", "opencode_accounts"):
+        if alias not in normalized:
+            continue
+        if backend != backends.CODEX_CHATGPT or alias != "codex_accounts":
+            raise RuntimeError(f"{alias} in {path} is unsupported for backend {backend}; use accounts")
+        if "accounts" in normalized:
+            raise RuntimeError(f"duplicate configuration for accounts in {path}: accounts and {alias}")
+        normalized["accounts"] = normalized.pop(alias)
+
+    for key in (*LEGACY_AGENT_PARAMETERS, *OPENCODE_AGENT_PARAMETERS):
+        if key not in normalized:
+            continue
+        if backend != backends.CODEX_CHATGPT or key in OPENCODE_AGENT_PARAMETERS:
+            raise RuntimeError(f"{key} in {path} must move under agent_parameters.{key}")
+        if key in parameters:
+            raise RuntimeError(f"duplicate configuration for {key} in {path}: {key} and agent_parameters.{key}")
+        parameters[key] = normalized.pop(key)
+    return normalized
+
+
+def parse_accounts(config: dict[str, object], backend: str, path: Path) -> list[str]:
+    if backend == backends.CODEX_API_KEY:
+        return []
+    return rf.parse_string_list(config, "accounts", path)
+
+
+def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths(),
+                     forced_backend: str | None = None) -> RunConfig:
+    loaded = rf.load_run_config(path)
+    backend = select_backend(loaded, forced_backend=forced_backend)
+    loaded = normalize_run_config(loaded, backend=backend, path=path)
+    paths = replace(paths, backend=backend)
+    if backend != backends.CODEX_API_KEY and "max_parallel_games" in loaded:
+        raise RuntimeError("max_parallel_games is only valid for backend codex_openai_api_key")
+    parallelism = loaded.get("max_parallel_games", "all")
+    if parallelism != "all" and (type(parallelism) is not int or parallelism <= 0):
+        raise RuntimeError("max_parallel_games must be 'all' or a positive integer")
+    parameters = cast(dict[str, object], loaded["agent_parameters"])
+    fast_tier = parameters.get("codex_account_fast_service_tier", False)
+    if not isinstance(fast_tier, bool):
+        raise RuntimeError(f"agent_parameters.codex_account_fast_service_tier in {path} must be a boolean")
+    games = rf.parse_string_list(loaded, "games", path)
     rf.validate_unique_games(games)
-
-    for account in accounts:
-        account_dir = paths.accounts_dir / account
-        if not account_dir.is_dir():
-            raise RuntimeError(f"codex account folder does not exist: {account_dir}")
-
-    return RunConfig(
-        accounts=accounts,
+    config = RunConfig(
         games=games,
-        environment=environment,
-        agent=agent,
-        parsed_run_config=loaded_config,
-        codex_account_fast_service_tier=fast_service_tier,
-        runner=runner,
-        agent_docker_build_args=agent_docker_build_args,
+        environment=rf.parse_environment_config(loaded, path, paths=paths),
+        agent=rf.parse_agent_name(loaded, path),
+        parsed_run_config=loaded,
+        backend=backend,
+        accounts=parse_accounts(loaded, backend, path),
+        max_parallel_games=parallelism,
+        codex_account_fast_service_tier=fast_tier,
+        runner=rf.parse_runner_config(loaded, path),
+        agent_docker_build_args=rf.parse_agent_docker_build_args(loaded, path),
         paths=paths,
     )
+    backends.create_backend(config).validate()
+    return config
 
 
-def clean_codex_account(
-    account: str, *, fast_service_tier: bool = False, paths: rf.RunPaths = rf.RunPaths(),
-) -> None:
-    if not CLEAN_CODEX_ACCOUNT_SCRIPT.is_file():
-        raise RuntimeError(f"codex account clean script does not exist: {CLEAN_CODEX_ACCOUNT_SCRIPT}")
-    if not os.access(CLEAN_CODEX_ACCOUNT_SCRIPT, os.X_OK):
-        raise RuntimeError(f"codex account clean script is not executable: {CLEAN_CODEX_ACCOUNT_SCRIPT}")
-
-    account_path = paths.accounts_dir / account
-    rf.LOGGER.info("cleaning codex account account=%s path=%s", account, account_path)
-    result = subprocess.run(
-        [str(CLEAN_CODEX_ACCOUNT_SCRIPT), str(account_path)],
-        cwd=rf.ROOT,
-        check=False,
-    )
-    if result.returncode != 0:
-        rf.LOGGER.error("codex account clean failed account=%s exit_code=%s", account, result.returncode)
-        raise RuntimeError(
-            f"codex account clean failed for {account} with exit code {result.returncode}"
-        )
-    if fast_service_tier:
-        with (account_path / "config.toml").open("a", encoding="utf-8") as config_file:
-            config_file.write('service_tier = "fast"\n')
-    rf.LOGGER.info("codex account clean completed account=%s fast_service_tier=%s", account, fast_service_tier)
-
-
-def verify_codex_accounts(config: RunConfig) -> None:
-    if not CHECK_CODEX_ACCOUNT_SCRIPT.is_file():
-        raise RuntimeError(f"codex account check script does not exist: {CHECK_CODEX_ACCOUNT_SCRIPT}")
-    if not os.access(CHECK_CODEX_ACCOUNT_SCRIPT, os.X_OK):
-        raise RuntimeError(f"codex account check script is not executable: {CHECK_CODEX_ACCOUNT_SCRIPT}")
-
-    for account in config.accounts:
-        account_path = config.paths.accounts_dir / account
-        rf.LOGGER.info("checking codex account account=%s path=%s", account, account_path)
-        result = subprocess.run(
-            [str(CHECK_CODEX_ACCOUNT_SCRIPT), str(account_path)],
-            cwd=rf.ROOT,
-            check=False,
-        )
-        if result.returncode != 0:
-            rf.LOGGER.error("codex account check failed account=%s exit_code=%s", account, result.returncode)
-            raise RuntimeError(
-                f"codex account check failed for {account} with exit code {result.returncode}"
-            )
-        rf.LOGGER.info("codex account check passed account=%s", account)
-
-
-def docker_agent_command(
-    account: str,
-    container_name: str,
-    network_name: str,
-    server_container_name: str,
-    proxy_container_name: str,
-    preparation: rf.LaunchPreparation,
-    *,
-    agent_image: str,
-    runner: rf.RunnerConfig = rf.RunnerConfig(),
-    paths: rf.RunPaths = rf.RunPaths(),
-) -> list[str]:
-    account_dir = paths.accounts_dir / account
+def docker_agent_command(slot: str, container_name: str, network_name: str,
+                         server_container_name: str, proxy_container_name: str,
+                         preparation: rf.LaunchPreparation, *, agent_image: str,
+                         backend: backends.RunBackend) -> list[str]:
     return [
-        "docker",
-        "run",
-        "--rm",
-        "--pull=never",
-        "--name",
-        container_name,
-        *rf.agent_memory_args(runner),
-        "-v",
-        f"{account_dir}:/home/user/.codex",
-        "--network",
-        network_name,
+        "docker", "run", "--rm", "--pull=never", "--name", container_name,
+        *rf.agent_memory_args(backend.config.runner),
+        *backend.authentication_args(slot),
+        "--network", network_name,
         *rf.proxy_env_args(proxy_container_name, server_container_name),
-        *rf.agent_launch_args(preparation),
-        agent_image,
-        *preparation.command,
+        *rf.agent_launch_args(preparation), agent_image, *preparation.command,
     ]
 
 
-def start_agent(
-    account: str,
-    game_alias: str,
-    real_game: str,
-    container_name: str,
-    network_name: str,
-    server_container_name: str,
-    proxy_container_name: str,
-    preparation: rf.LaunchPreparation,
-    *,
-    agent_image: str,
-    fast_service_tier: bool = False,
-    runner: rf.RunnerConfig = rf.RunnerConfig(),
-    paths: rf.RunPaths = rf.RunPaths(),
-) -> rf.RunningContainer:
-    clean_codex_account(account, fast_service_tier=fast_service_tier, paths=paths)
-    command = docker_agent_command(
-        account,
-        container_name,
-        network_name,
-        server_container_name,
-        proxy_container_name,
-        preparation,
-        agent_image=agent_image,
-        runner=runner,
-        paths=paths,
-    )
-    rf.log_info(
-        "starting game %s as alias %s on codex account %s; container: %s",
-        real_game,
-        game_alias,
-        account,
-        container_name,
-    )
-    rf.LOGGER.info(
-        "agent command real_game=%s game_alias=%s account=%s command=%s",
-        real_game,
-        game_alias,
-        account,
-        command,
-    )
-    process = subprocess.Popen(
-        command,
-        cwd=rf.ROOT,
-        stdin=subprocess.DEVNULL,
-    )
-    return rf.RunningContainer(
-        container_name=container_name,
-        process=process,
-    )
+def start_agent(slot: str, game_alias: str, real_game: str, container_name: str,
+                network_name: str, server_container_name: str, proxy_container_name: str,
+                preparation: rf.LaunchPreparation, *, agent_image: str,
+                backend: backends.RunBackend, check_cancelled) -> rf.RunningContainer:
+    check_cancelled()
+    backend.prepare_game(slot, game_alias, real_game, container_name, agent_image)
+    check_cancelled()
+    command = docker_agent_command(slot, container_name, network_name, server_container_name,
+                                   proxy_container_name, preparation, agent_image=agent_image, backend=backend)
+    rf.log_info("starting game %s as alias %s with backend %s in slot %s; container: %s",
+                real_game, game_alias, backend.config.backend, slot, container_name)
+    if backend.log_command:
+        rf.LOGGER.info("agent command game=%s alias=%s slot=%s command=%s", real_game, game_alias, slot, command)
+    else:
+        rf.LOGGER.info("agent command game=%s alias=%s uses CODEX_API_KEY; command not logged", real_game, game_alias)
+    check_cancelled()
+    process = subprocess.Popen(command, cwd=rf.ROOT, stdin=subprocess.DEVNULL,
+                               env=backend.process_environment())
+    return rf.RunningContainer(container_name, process)
 
 
-def run_scheduler(
-    config: RunConfig,
-    container_names: rf.ContainerNames,
-    game_id_mapping: dict[str, str],
-    *,
-    images: rf.RunImages,
-) -> int:
-    def launch_agent(account: str, game_alias: str, real_game: str) -> rf.RunningContainer:
+def run_scheduler(config: RunConfig, container_names: rf.ContainerNames,
+                  game_id_mapping: dict[str, str], *, images: rf.RunImages,
+                  backend: backends.RunBackend) -> int:
+    def launch_agent(slot: str, game_alias: str, real_game: str, check_cancelled) -> rf.RunningContainer:
+        check_cancelled()
         preparation = rf.prepare_agent_run(
-            config.agent,
-            config.paths.run_dir / game_alias,
-            f"http://{container_names.servers[real_game]}:{rf.SERVER_PORT}",
-            game_alias,
-            config.parsed_run_config,
-            initial_files_dir=rf.initial_workspace_files(config.environment.name),
+            config.agent, config.paths.run_dir / game_alias,
+            f"http://{container_names.servers[real_game]}:{rf.SERVER_PORT}", game_alias,
+            config.agent_parameters, initial_files_dir=rf.initial_workspace_files(config.environment.name),
         )
+        check_cancelled()
         return start_agent(
-            account,
-            game_alias,
-            real_game,
-            container_names.agents[real_game],
-            container_names.internal_network,
-            container_names.servers[real_game],
-            container_names.proxy,
-            preparation,
-            agent_image=images.agent,
-            fast_service_tier=config.codex_account_fast_service_tier,
-            runner=config.runner,
-            paths=config.paths,
+            slot, game_alias, real_game, container_names.agents[real_game],
+            container_names.internal_network, container_names.servers[real_game], container_names.proxy,
+            preparation, agent_image=images.agent, backend=backend, check_cancelled=check_cancelled,
         )
 
     return rf.run_scheduler(
-        config.environment,
-        container_names,
-        game_id_mapping,
-        images=images,
-        slots=config.accounts,
-        launch_agent=launch_agent,
-        paths=config.paths,
+        config.environment, container_names, game_id_mapping, images=images,
+        slots=backend.slots(len(game_id_mapping)), launch_agent=launch_agent,
+        finalize_game=lambda slot, game: backend.finalize_game(slot, game, images.agent), paths=config.paths,
     )
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run games across codex accounts.")
-    rf.add_run_path_arguments(parser)
+def parse_args(argv: list[str], *, config_name: str = "run_config.yaml") -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run games with Codex ChatGPT, OpenCode ChatGPT, or Codex API-key authentication.")
+    rf.add_run_path_arguments(parser, config_name=config_name)
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(sys.argv[1:] if argv is None else argv)
+def main(argv: list[str] | None = None, *, forced_backend: str | None = None,
+         config_name: str = "run_config.yaml") -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv, config_name=config_name)
+    paths = rf.RunPaths(args.run_root, args.accounts_dir, forced_backend or backends.CODEX_CHATGPT, config_name)
     run_created = False
     try:
-        paths = rf.RunPaths(args.run_root)
         run_config = paths.resolve_config(args.run_config)
-        config = parse_run_config(run_config, paths=paths)
+        config = parse_run_config(run_config, paths=paths, forced_backend=forced_backend)
+        paths = config.paths
+        backend = backends.create_backend(config)
+        backend.authorize()
         rf.verify_environment_variables(config.environment)
         game_id_mapping = rf.build_game_id_mapping(config.games)
         container_names = rf.build_container_names(config.games)
         rf.verify_container_names_available(container_names)
         rf.verify_network_names_available(container_names)
-        rf.prepare_run_root(paths)
-        run_created = True
-        rf.setup_runner_logging(paths)
-        rf.LOGGER.info("runner log started: %s", paths.runner_log)
-        rf.LOGGER.info("source root=%s run root=%s", rf.ROOT, paths.root)
-        rf.LOGGER.info(
-            "run config=%s accounts=%s games=%s environment=%s environment_parameters=%s environment_variables=%s",
-            run_config,
-            config.accounts,
-            config.games,
-            config.environment.name,
-            config.environment.parameters,
-            config.environment.variables,
-        )
-        rf.LOGGER.info("selected agent=%s", config.agent)
-        rf.LOGGER.info("runner memory limits=%s", config.runner)
-        rf.LOGGER.info("game alias mapping=%s", game_id_mapping)
-        rf.LOGGER.info(
-            "docker names internal_network=%s internet_network=%s proxy=%s servers=%s agents=%s",
-            container_names.internal_network,
-            container_names.internet_network,
-            container_names.proxy,
-            container_names.servers,
-            container_names.agents,
-        )
-        with rf.built_run_images(
-            config.environment.name, config.agent,
-            agent_docker_build_args=config.agent_docker_build_args,
-            paths=paths,
-        ) as images:
-            verify_codex_accounts(config)
-            exit_code = run_scheduler(config, container_names, game_id_mapping, images=images)
+        with backend.reserve():
+            rf.prepare_run_root(paths)
+            run_created = True
+            rf.setup_runner_logging(paths)
+            rf.LOGGER.info("runner log started: %s", paths.runner_log)
+            rf.LOGGER.info("source root=%s run root=%s run config=%s", rf.ROOT, paths.root, run_config)
+            rf.LOGGER.info("backend=%s accounts=%s max_parallel_games=%s agent=%s games=%s",
+                           config.backend, config.accounts, config.max_parallel_games, config.agent, config.games)
+            rf.LOGGER.info("environment=%s parameters=%s variables=%s", config.environment.name,
+                           config.environment.parameters, config.environment.variables)
+            rf.LOGGER.info("runner memory limits=%s", config.runner)
+            rf.LOGGER.info("game alias mapping=%s", game_id_mapping)
+            rf.LOGGER.info("docker names=%s", container_names)
+            with rf.built_run_images(config.environment.name, config.agent,
+                                     agent_docker_build_args=config.agent_docker_build_args, paths=paths) as images:
+                backend.preflight(images.agent)
+                exit_code = run_scheduler(config, container_names, game_id_mapping, images=images, backend=backend)
         rf.LOGGER.info("runner finished exit_code=%s", exit_code)
         return exit_code
     except KeyboardInterrupt:
@@ -295,6 +231,13 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if run_created:
             rf.make_run_writable(paths)
+
+
+# Compatibility aliases for callers that imported the old Codex helper names.
+CHECK_CODEX_ACCOUNT_SCRIPT = backends.CHECK_CODEX_ACCOUNT_SCRIPT
+CLEAN_CODEX_ACCOUNT_SCRIPT = backends.CLEAN_CODEX_ACCOUNT_SCRIPT
+clean_codex_account = backends.clean_codex_account
+verify_codex_accounts = backends.verify_codex_accounts
 
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
 # Terminal-Bench experiment output
 /run_tb/
 /run
+
+# Account reservation files persist after the OS lock is released.
+/codex_accounts/.*.codex.lock

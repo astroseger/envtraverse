@@ -1,0 +1,26 @@
+backend: opencode_chatgpt_accounts
+agent: opencode_agent_v1_08_wstop3
+agent_parameters:
+  # Both fields are required; specify effort separately, without # in either.
+  model: openai/gpt-6.1-terra
+  reasoning_effort: max
+
+  # Optional native settings; omitted values retain OpenCode defaults.
+  # opencode_thinking: false
+  # opencode_agent: build
+  # opencode_shell_timeout_background: false
+
+  # Existing supervision settings remain available.
+  # supervisor_inactivity_timeout_seconds: 7200
+  # recovery_delay_seconds: 0
+  # max_recovery_attempts: 10
+
+environment: example
+
+games:
+  - counter
+
+# Mounted directly for online use; refreshed credentials stay at the same path.
+# Before each fresh game, offline cleanup preserves credentials and removes old
+# history. Recovery within a game keeps its database and does not clean it.
+accounts: [oc_rod1_1]

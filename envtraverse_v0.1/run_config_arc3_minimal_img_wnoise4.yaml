@@ -1,4 +1,7 @@
 agent: agent_v1
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
 environment: arc3_minimal_img_wnoise4
 environment_parameters:
   image_scale: 8
@@ -43,6 +46,4 @@ environment_variables:
   - ARC_API_KEY
 
 games: [ls20]
-codex_accounts: [codex01]
-model: gpt-5.6-sol
-reasoning_effort: max
+accounts: [codex01]

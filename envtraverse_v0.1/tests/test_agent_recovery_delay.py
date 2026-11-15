@@ -18,7 +18,7 @@ def load_agent_modules(agent_name: str):
     # Agent variants share module names; restore the import cache and path so
     # each test exercises its selected variant without affecting other tests.
     with patch.dict(sys.modules), patch.object(sys, "path", [str(agent_src), str(ROOT), *sys.path]):
-        for name in ("agent", "agent_funs", "agent_runner", "codex_runner", "session_inspector"):
+        for name in ("agent", "agent_funs", "agent_runner", "codex_runner", "opencode_runner", "session_inspector"):
             sys.modules.pop(name, None)
         runner = importlib.import_module("agent_runner")
         inspector = importlib.import_module("session_inspector")
@@ -126,6 +126,10 @@ class WstopRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
 
 class Wstop3RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
     agent_name = "agent_v1_08_wstop3"
+
+
+class OpenCodeWstop3RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
+    agent_name = "opencode_agent_v1_08_wstop3"
 
 
 class WresetRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
@@ -325,6 +329,10 @@ class WstopRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
 
 class Wstop3RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
     agent_name = "agent_v1_08_wstop3"
+
+
+class OpenCodeWstop3RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
+    agent_name = "opencode_agent_v1_08_wstop3"
 
 
 class WresetRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):

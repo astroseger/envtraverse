@@ -1,0 +1,13 @@
+backend: codex_openai_api_key
+agent: agent_v1
+agent_parameters:
+  model: gpt-5.6-sol
+  reasoning_effort: max
+environment: example
+
+games:
+  - counter
+
+# Read from OPENAI_API_KEY in the host environment; no account directory needed.
+# Only this backend accepts max_parallel_games. Omit it or use all for no cap.
+max_parallel_games: all

@@ -1,7 +1,10 @@
+"""Shared experiment paths, Docker lifecycle, and game scheduling utilities."""
+
 from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import logging
 import os
 import re
@@ -28,6 +31,7 @@ ROOT = Path(__file__).resolve().parent
 AGENTS_DIR = ROOT / "src" / "agents"
 ENVIRONMENTS_DIR = ROOT / "src" / "server" / "environments"
 CODEX_ACCOUNT_SCRIPTS_DIR = ROOT / "codex_accounts"
+OPENCODE_ACCOUNT_SCRIPTS_DIR = ROOT / "opencode_chatgpt_accounts"
 BUILD_DOCKERS_SCRIPT = ROOT / "src" / "build_dockers.sh"
 
 SERVER_PORT = 8879
@@ -42,17 +46,25 @@ class RunPaths:
     """Experiment paths, independent of the source checkout and caller's CWD."""
 
     root: Path = ROOT
+    accounts_root: Path | None = None
+    backend: str = "codex_chatgpt_accounts"
+    config_name: str = "run_config.yaml"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", self.root.expanduser().resolve())
+        if self.accounts_root is not None:
+            object.__setattr__(self, "accounts_root", self.accounts_root.expanduser().resolve())
 
     @property
     def run_config(self) -> Path:
-        return self.root / "run_config.yaml"
+        return self.root / self.config_name
 
     @property
     def accounts_dir(self) -> Path:
-        return self.root / "codex_accounts"
+        if self.accounts_root is not None:
+            return self.accounts_root
+        directory = "opencode_chatgpt_accounts" if self.backend == "opencode_chatgpt_accounts" else "codex_accounts"
+        return self.root / directory
 
     @property
     def run_dir(self) -> Path:
@@ -70,12 +82,14 @@ class RunPaths:
         return self.run_config if override is None else override.expanduser().resolve()
 
 
-def add_run_path_arguments(parser: argparse.ArgumentParser) -> None:
+def add_run_path_arguments(parser: argparse.ArgumentParser, *, config_name: str = "run_config.yaml") -> None:
     parser.add_argument("--run-root", type=Path, default=ROOT,
                         help=f"directory for configuration, accounts and outputs; default: {ROOT}")
     parser.add_argument("--run-config", type=Path,
-                        help="configuration file; default: <run-root>/run_config.yaml; "
+                        help=f"configuration file; default: <run-root>/{config_name}; "
                              "explicit relative paths use the caller's working directory")
+    parser.add_argument("--accounts-dir", type=Path,
+                        help="existing account directory; default: the selected backend account folder under <run-root>")
 
 
 @dataclass(frozen=True)
@@ -234,6 +248,58 @@ def parse_string_list(config: dict[str, object], key: str, path: Path) -> list[s
     if not all(isinstance(item, str) and item for item in value):
         raise RuntimeError(f"{key} in {path} must contain only non-empty strings")
     return value
+
+
+def resolve_model(config: dict[str, object], path: Path) -> str:
+    """Translate the experiment's model/effort into OpenCode's native reference."""
+    model = config.get("model")
+    effort = config.get("reasoning_effort")
+    for name, value in (("model", model), ("reasoning_effort", effort)):
+        if not isinstance(value, str) or not value or any(character.isspace() for character in value):
+            raise RuntimeError(f"{name} is required in {path} and must be a nonempty string without whitespace")
+    if "/" not in model:
+        model = "openai/" + model
+    if not model.startswith("openai/") or not model.removeprefix("openai/"):
+        raise RuntimeError(f"model in {path} must select an OpenAI model")
+    if "#" in model:
+        raise RuntimeError(f"model in {path} must not include a #variant; use reasoning_effort instead")
+    if "#" in effort or "/" in effort:
+        raise RuntimeError(f"reasoning_effort in {path} must be a variant without '#' or '/'")
+    return model + "#" + effort
+
+
+def validate_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) -> None:
+    if not accounts or len(set(accounts)) != len(accounts):
+        raise RuntimeError("OpenCode account names must be nonempty and unique")
+    for account in accounts:
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", account):
+            raise RuntimeError(f"invalid OpenCode account name: {account!r}")
+        directory = paths.accounts_dir / account
+        if directory.is_symlink() or not directory.is_dir():
+            raise RuntimeError(f"OpenCode account must be an existing directory, not a symlink: {directory}")
+        database = directory / "opencode.db"
+        if database.is_symlink() or not database.is_file():
+            raise RuntimeError(f"OpenCode v2 account database does not exist: {database}")
+
+
+@contextmanager
+def lock_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) -> Iterator[dict[str, int]]:
+    """Reserve original account directories through checks, execution and shutdown.
+
+    The cleaner inherits its account's descriptor so it can use the same lock
+    while replacing the account directory, without unlocking between games.
+    """
+    # Compatibility helper for OpenCode callers; backend adapters reserve their
+    # account pools directly through the same shared lock implementation.
+    from account_locks import account_lock
+
+    validate_accounts(accounts, paths=paths)
+    with ExitStack() as cleanup:
+        descriptors = {
+            account: cleanup.enter_context(account_lock(paths.accounts_dir / account, kind="opencode"))
+            for account in sorted(accounts)
+        }
+        yield descriptors
 
 
 def agent_directory(name: str) -> Path:
@@ -829,7 +895,7 @@ def stop_container(
         if time.monotonic() >= deadline:
             break
         time.sleep(0.1)
-    if process.poll() is not None:
+    if process.poll() is not None and not container_exists(container_name):
         return
 
     log_info("stopping %s", name)
@@ -838,9 +904,11 @@ def stop_container(
         cwd=ROOT,
         check=False,
     )
-    if stop_result.returncode != 0 and process.poll() is None:
+    stop_failed = False
+    if stop_result.returncode != 0 and container_exists(container_name):
         LOGGER.error("docker stop failed for %s exit_code=%s; killing container", name, stop_result.returncode)
-        subprocess.run(["docker", "kill", container_name], cwd=ROOT, check=False)
+        kill_result = subprocess.run(["docker", "kill", container_name], cwd=ROOT, check=False)
+        stop_failed = kill_result.returncode != 0 and container_exists(container_name)
 
     try:
         process.wait(timeout=5.0)
@@ -849,6 +917,10 @@ def stop_container(
         log_info("killing docker client for %s after timeout", name)
         process.kill()
         process.wait()
+    if stop_failed:
+        raise RuntimeError(
+            f"could not stop container {container_name}; stop it before using its account again"
+        )
 
 
 def stop_game(game: RunningGame) -> None:
@@ -861,13 +933,30 @@ def stop_game(game: RunningGame) -> None:
             stop_container(game.agent.container_name, game.agent.process, f"agent for game {game.game}")
 
 
-def stop_all(running: dict[str, RunningGame], proxy: RunningContainer | None) -> None:
-    with ExitStack() as cleanup:
-        if proxy is not None:
-            cleanup.callback(stop_container, proxy.container_name, proxy.process, "proxy")
-        for game in reversed(list(running.values())):
-            cleanup.callback(stop_game, game)
-        running.clear()
+def stop_all(running: dict[str, RunningGame], proxy: RunningContainer | None,
+             *, finalize_game: Callable[[str, RunningGame], None] | None = None) -> None:
+    stopped: list[tuple[str, RunningGame]] = []
+
+    def stop_one(slot: str, game: RunningGame) -> None:
+        stop_game(game)
+        stopped.append((slot, game))
+
+    def finalize_stopped() -> None:
+        if finalize_game is not None:
+            with ExitStack() as cleanup:
+                for slot, game in reversed(stopped):
+                    cleanup.callback(finalize_game, slot, game)
+
+    # Stop every writer before snapshots, even if one stop or collection fails.
+    # Failed stops retain their pending marker and are not declared final.
+    with ExitStack() as finalization:
+        finalization.callback(finalize_stopped)
+        with ExitStack() as cleanup:
+            if proxy is not None:
+                cleanup.callback(stop_container, proxy.container_name, proxy.process, "proxy")
+            for slot, game in reversed(list(running.items())):
+                cleanup.callback(stop_one, slot, game)
+            running.clear()
 
 
 def run_scheduler(
@@ -877,17 +966,35 @@ def run_scheduler(
     *,
     images: RunImages,
     slots: Sequence[str],
-    launch_agent: Callable[[str, str, str], RunningContainer],
+    launch_agent: Callable[..., RunningContainer],
+    finalize_game: Callable[[str, RunningGame], None] | None = None,
     paths: RunPaths = RunPaths(),
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
-    The launcher supplies launch_agent(slot, alias, real_game). Each game is
-    attempted once. The exit code is nonzero if any pair fails.
+    The launcher receives a cancellation check to call between preparation,
+    account cleanup, and process launch. Each game is attempted once. The exit
+    code is nonzero if any pair fails.
     """
     slots = tuple(slots)
     if not slots or len(set(slots)) != len(slots):
         raise ValueError("Worker slots must be non-empty and unique")
+
+    # Older custom launchers take three arguments. Inspect before launching so a
+    # TypeError inside a callback is never mistaken for a signature mismatch and
+    # retried after it may already have created a process.
+    try:
+        signature = inspect.signature(launch_agent)
+    except (TypeError, ValueError):
+        accepts_cancel_check = True
+    else:
+        try:
+            signature.bind("slot", "alias", "game", lambda: None)
+        except TypeError:
+            signature.bind("slot", "alias", "game")
+            accepts_cancel_check = False
+        else:
+            accepts_cancel_check = True
 
     pending_games = deque(game_id_mapping.items())
     running: dict[str, RunningGame] = {}
@@ -900,6 +1007,10 @@ def run_scheduler(
         log_info("received signal %s; stopping containers", signum)
         stopping = True
 
+    def raise_if_stopping() -> None:
+        if stopping:
+            raise KeyboardInterrupt
+
     with ExitStack() as cleanup:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous_handler = signal.signal(signum, handle_signal)
@@ -909,7 +1020,7 @@ def run_scheduler(
         cleanup.callback(remove_network, container_names.internal_network)
         create_network(container_names.internet_network)
         cleanup.callback(remove_network, container_names.internet_network)
-        cleanup.callback(lambda: stop_all(running, proxy))
+        cleanup.callback(lambda: stop_all(running, proxy, finalize_game=finalize_game))
 
         if stopping:
             return 130
@@ -960,7 +1071,10 @@ def run_scheduler(
                         if stopping:
                             break
                         try:
-                            game.agent = launch_agent(slot, game.alias, game.game)
+                            if accepts_cancel_check:
+                                game.agent = launch_agent(slot, game.alias, game.game, raise_if_stopping)
+                            else:
+                                game.agent = launch_agent(slot, game.alias, game.game)
                         except Exception:
                             LOGGER.exception("could not start agent for game %s", game.game)
                             log_info("could not start agent for game %s; see runner.log", game.game)
@@ -978,6 +1092,8 @@ def run_scheduler(
 
                 stop_game(game)
                 del running[slot]
+                if finalize_game is not None:
+                    finalize_game(slot, game)
 
             if stopping:
                 break

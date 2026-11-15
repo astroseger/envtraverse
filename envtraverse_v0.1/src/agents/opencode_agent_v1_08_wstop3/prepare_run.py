@@ -24,16 +24,21 @@ def prepare_run(
     """Create this game's agent workspace without exposing the full run config."""
     model = parsed_run_config.get("model")
     reasoning_effort = parsed_run_config.get("reasoning_effort")
+    for name, value in (("model", model), ("reasoning_effort", reasoning_effort)):
+        if (not isinstance(value, str) or not value
+                or any(character.isspace() for character in value)):
+            raise RuntimeError(f"{name} is required in run config and must be a non-empty string without whitespace")
+    if "#" in model:
+        raise RuntimeError("model in run config must not contain #; set reasoning_effort separately")
+    qualified_model = model if "/" in model else "openai/" + model
+    if not qualified_model.startswith("openai/") or not qualified_model.removeprefix("openai/"):
+        raise RuntimeError("model in run config must select an OpenAI model")
+    if "#" in reasoning_effort or "/" in reasoning_effort:
+        raise RuntimeError("reasoning_effort in run config must be a variant without # or /")
     opencode_agent = parsed_run_config.get("opencode_agent")
-    for name, value in (("model", model), ("reasoning_effort", reasoning_effort),
-                        ("opencode_agent", opencode_agent)):
-        if value is not None and (not isinstance(value, str) or not value.strip()
-                                  or any(character.isspace() for character in value)):
-            raise RuntimeError(f"{name} in run config must be a non-empty string without whitespace")
-    if reasoning_effort is not None and model is None:
-        raise RuntimeError("reasoning_effort requires an explicit model in run config")
-    if model is not None and "#" in model and reasoning_effort is not None:
-        raise RuntimeError("Choose a #variant in model or reasoning_effort, not both")
+    if opencode_agent is not None and (not isinstance(opencode_agent, str) or not opencode_agent
+                                       or any(character.isspace() for character in opencode_agent)):
+        raise RuntimeError("opencode_agent in run config must be a non-empty string without whitespace")
     thinking = parsed_run_config.get("opencode_thinking", False)
     if not isinstance(thinking, bool):
         raise RuntimeError("opencode_thinking in run config must be a boolean")
@@ -68,11 +73,8 @@ def prepare_run(
             except ValueError as exc:
                 raise RuntimeError(f"{exc} in run config") from None
 
-    command = ["python3", "agent_runner.py", game_alias]
-    if model is not None:
-        command.extend(["--model", model])
-    if reasoning_effort is not None:
-        command.extend(["--reasoning-effort", reasoning_effort])
+    command = ["python3", "agent_runner.py", game_alias,
+               "--model", model, "--reasoning-effort", reasoning_effort]
     if thinking:
         command.append("--opencode-thinking")
     if opencode_agent is not None:

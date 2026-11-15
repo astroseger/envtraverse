@@ -165,8 +165,11 @@ def run_experiment(
         output.wait_ready(shutdown)
 
         print("[tb] Starting run_controller.py.", flush=True)
-        controller = start_process(source_root, [sys.executable, "-u", str(source_root / "run_controller.py"),
-                                                "--run-root", str(paths.root), "--run-config", str(run_config)])
+        controller_command = [sys.executable, "-u", str(source_root / "run_controller.py"),
+                              "--run-root", str(paths.root), "--run-config", str(run_config)]
+        if paths.accounts_root is not None:
+            controller_command.extend(["--accounts-dir", str(paths.accounts_root)])
+        controller = start_process(source_root, controller_command)
         exit_code = wait_process(controller, shutdown, runtime=runtime)
     except KeyboardInterrupt:
         print("[tb] Interrupted; stopping the controller before shutting down the runtime.", flush=True)
@@ -204,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                              "default setup: 2.1. Explicit selections must include all configured games")
     args = parser.parse_args(argv)
     try:
-        paths = rf.RunPaths(args.run_root)
+        paths = rf.RunPaths(args.run_root, args.accounts_dir)
         return run_experiment(ROOT, paths.resolve_config(args.run_config), benchmarks=args.benchmarks, paths=paths)
     except KeyboardInterrupt:
         return 130

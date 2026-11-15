@@ -18,7 +18,9 @@ IMAGE_QUERY = ["image", "ls", "--quiet", "--filter", f"reference={IMAGE}:latest"
 DOCKER_STUB = r'''
 docker() {
     printf '%s\0' "$@" '' >> "$DOCKER_TEST_LOG"
-    if [[ "$1" == image ]]; then
+    if [[ "$1" == ps ]]; then
+        return 0
+    elif [[ "$1" == image ]]; then
         if [[ "$DOCKER_TEST_QUERY_STATUS" != 0 ]]; then
             printf 'Docker daemon unavailable\n' >&2
             return "$DOCKER_TEST_QUERY_STATUS"
@@ -62,6 +64,11 @@ class AccountImageTest(unittest.TestCase):
         self.account.mkdir()
         self.log = self.directory / "docker-commands"
         self.image_state = self.directory / "image-exists"
+        self.binary_dir = self.directory / "bin"
+        self.binary_dir.mkdir()
+        docker = self.binary_dir / "docker"
+        docker.write_text("#!/usr/bin/env bash\n" + DOCKER_STUB + '\ndocker "$@"\n')
+        docker.chmod(0o755)
 
     def invocation(self, name, *args, scripts_dir=ACCOUNT_SCRIPTS, log=None,
                    query_status=0, build_status=0, release=""):
@@ -71,6 +78,7 @@ class AccountImageTest(unittest.TestCase):
             cwd=self.directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             env=dict(
                 os.environ, DOCKER_TEST_LOG=str(log or self.log),
+                PATH=f"{self.binary_dir}:{os.environ['PATH']}",
                 DOCKER_TEST_IMAGE=str(self.image_state),
                 DOCKER_TEST_LOCK=str(self.directory / "build.lock"),
                 DOCKER_TEST_QUERY_STATUS=str(query_status),
@@ -93,7 +101,9 @@ class AccountImageTest(unittest.TestCase):
         result = subprocess.run(
             **self.invocation(name, *args, **options), timeout=10,
         )
-        return result, self.commands(self.log)
+        # Account-use inspection precedes image work; these tests concern image
+        # reuse/build behavior. Dedicated account-lock tests assert those checks.
+        return result, [command for command in self.commands(self.log) if command[0] not in {"ps", "inspect"}]
 
     def account_commands(self):
         return (

@@ -68,16 +68,18 @@ class SharedSchedulerTest(unittest.TestCase):
             return code if self.tick >= at else None
         return rf.RunningContainer(name, Mock(poll=Mock(side_effect=poll)))
 
-    def launch_agent(self, slot, alias, game):
+    def launch_agent(self, slot, alias, game, check_cancelled):
+        check_cancelled()
         self.launches.append((self.tick, slot, alias, game))
         process = Mock(poll=Mock(side_effect=lambda: (
             self.exit_codes.get(game, 0) if self.tick >= self.finish_at.get(game, 0) else None
         )))
         return rf.RunningContainer(self.names.agents[game], process)
 
-    def run_scheduler(self, slots=("worker",)):
+    def run_scheduler(self, slots=("worker",), *, finalize_game=None):
         return rf.run_scheduler(
             self.environment, self.names, self.mapping, images=self.images, slots=slots, launch_agent=self.launch,
+            finalize_game=finalize_game,
         )
 
     def assert_common_cleanup(self):
@@ -108,9 +110,9 @@ class SharedSchedulerTest(unittest.TestCase):
         for alias, game in self.mapping.items():
             self.start_server.assert_any_call(
                 self.names.servers[game], self.names.internet_network, self.names.internal_network,
-                self.environment, alias, game, image=self.images.server,
+                self.environment, alias, game, image=self.images.server, paths=rf.RunPaths(),
             )
-            self.prepare.assert_any_call(alias)
+            self.prepare.assert_any_call(alias, paths=rf.RunPaths())
             self.assert_pair_stopped(game)
         self.assertEqual(self.start_server.call_count, 3)
         # Once ready, only process exit is checked; busy game servers are never health-probed.
@@ -202,8 +204,8 @@ class SharedSchedulerTest(unittest.TestCase):
         self.assert_common_cleanup()
 
     def test_signal_during_launch_cleans_up_agent_and_both_started_servers(self):
-        def launch(slot, alias, game):
-            agent = self.launch_agent(slot, alias, game)
+        def launch(slot, alias, game, check_cancelled):
+            agent = self.launch_agent(slot, alias, game, check_cancelled)
             self.handlers[signal.SIGINT](signal.SIGINT, None)
             return agent
         self.launch.side_effect = launch
@@ -244,10 +246,10 @@ class SharedSchedulerTest(unittest.TestCase):
         self.assert_common_cleanup()
 
     def test_agent_launch_exception_stops_its_server_and_continues(self):
-        def launch(slot, alias, game):
+        def launch(slot, alias, game, check_cancelled):
             if game == "first":
                 raise RuntimeError("Agent launch failed")
-            return self.launch_agent(slot, alias, game)
+            return self.launch_agent(slot, alias, game, check_cancelled)
         self.launch.side_effect = launch
         self.assertEqual(self.run_scheduler(("one", "two")), 1)
         self.assertEqual([entry[3] for entry in self.launches], ["second", "third"])
@@ -281,6 +283,96 @@ class SharedSchedulerTest(unittest.TestCase):
             self.assertFalse(self.real_health_check(self.proxy))
         self.assertEqual(probe.call_args.kwargs["timeout"], 2.0)
 
+    def test_legacy_three_argument_callback_remains_supported(self):
+        def launch(slot, alias, game):
+            return self.launch_agent(slot, alias, game, lambda: None)
+
+        self.launch = launch
+        self.assertEqual(self.run_scheduler(), 0)
+        self.assertEqual([entry[3] for entry in self.launches], list(self.mapping.values()))
+
+    def test_internal_callback_typeerror_does_not_retry_launch(self):
+        attempts = []
+
+        def launch(slot, alias, game, check_cancelled):
+            attempts.append(game)
+            if game == "first":
+                raise TypeError("Failure inside the callback")
+            return self.launch_agent(slot, alias, game, check_cancelled)
+
+        self.launch.side_effect = launch
+        self.assertEqual(self.run_scheduler(), 1)
+        self.assertEqual(attempts, list(self.mapping.values()))
+
+    def test_cancel_check_interrupts_preparation_before_agent_launch(self):
+        def launch(slot, alias, game, check_cancelled):
+            self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            check_cancelled()
+            self.fail("Cancelled launcher continued")
+
+        self.launch.side_effect = launch
+        finalize = Mock()
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_scheduler(finalize_game=finalize)
+        self.assertEqual(self.launches, [])
+        self.assert_pair_stopped("first", agent=False)
+        self.assertEqual(finalize.call_args.args[0], "worker")
+        self.assertEqual(finalize.call_args.args[1].game, "first")
+        self.assert_common_cleanup()
+
+    def test_game_finalization_finishes_before_slot_reuse(self):
+        finalized = []
+
+        def finalize(slot, game):
+            self.assert_pair_stopped(game.game)
+            finalized.append((slot, game.game))
+
+        original = self.start_server.side_effect
+
+        def start(*args, **kwargs):
+            if args[5] == "second":
+                self.assertEqual(finalized, [("worker", "first")])
+            return original(*args, **kwargs)
+
+        self.start_server.side_effect = start
+        self.assertEqual(self.run_scheduler(finalize_game=finalize), 0)
+        self.assertEqual(finalized, [("worker", game) for game in self.mapping.values()])
+
+    def test_shutdown_stops_all_writers_before_finalizing_and_continues_after_finalizer_failure(self):
+        self.finish_at.update(first=99, second=99)
+        self.proxy.process.poll.side_effect = [None, 31]
+        finalized = []
+
+        def finalize(slot, game):
+            self.assert_pair_stopped("first")
+            self.assert_pair_stopped("second")
+            self.assertIn(("container", self.names.proxy), self.cleanup_order)
+            finalized.append(game.game)
+            if game.game == "first":
+                raise RuntimeError("Snapshot failed")
+
+        with self.assertRaisesRegex(RuntimeError, "Snapshot failed"):
+            self.run_scheduler(("one", "two"), finalize_game=finalize)
+        self.assertEqual(finalized, ["first", "second"])
+        self.assert_common_cleanup()
+
+    def test_failed_stop_prevents_finalizing_that_game_but_not_other_stopped_games(self):
+        self.finish_at.update(first=99, second=99)
+        self.proxy.process.poll.side_effect = [None, 31]
+        original = self.stop_container.side_effect
+
+        def stop(name, *args):
+            original(name, *args)
+            if name == self.names.agents["first"]:
+                raise RuntimeError("Cannot stop writer")
+
+        self.stop_container.side_effect = stop
+        finalized = []
+        with self.assertRaisesRegex(RuntimeError, "Cannot stop writer"):
+            self.run_scheduler(("one", "two"), finalize_game=lambda slot, game: finalized.append(game.game))
+        self.assertEqual(finalized, ["second"])
+        self.assert_common_cleanup()
+
 
 class ContainerStopTest(unittest.TestCase):
     def test_shutdown_waits_for_a_container_still_being_created(self):
@@ -305,10 +397,47 @@ class ContainerStopTest(unittest.TestCase):
 
     def test_failed_launch_does_not_wait_for_a_nonexistent_container(self):
         process = Mock(poll=Mock(return_value=125))
-        with patch.object(rf, "container_exists") as exists, patch.object(rf.subprocess, "run") as run:
+        with patch.object(rf, "container_exists", return_value=False) as exists, patch.object(rf.subprocess, "run") as run:
             rf.stop_container("failed-container", process, "server")
-        exists.assert_not_called()
+        exists.assert_called_once_with("failed-container")
         run.assert_not_called()
+
+    def test_exited_docker_client_does_not_hide_a_remaining_container(self):
+        process = Mock(poll=Mock(return_value=0))
+        with (
+            patch.object(rf, "container_exists", return_value=True),
+            patch.object(rf.subprocess, "run", return_value=Mock(returncode=0)) as run,
+            patch.object(rf, "log_info"),
+        ):
+            rf.stop_container("orphan-container", process, "agent")
+        self.assertEqual(run.call_args.args[0], ["docker", "stop", "--timeout", "20", "orphan-container"])
+        process.wait.assert_called_once_with(timeout=5.0)
+
+    def test_failed_stop_and_kill_do_not_report_container_as_stopped(self):
+        process = Mock(poll=Mock(return_value=0))
+        with (
+            patch.object(rf, "container_exists", return_value=True),
+            patch.object(rf.subprocess, "run", return_value=Mock(returncode=1)) as run,
+            patch.object(rf, "log_info"),
+            patch.object(rf, "LOGGER"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "could not stop container"):
+                rf.stop_container("orphan-container", process, "agent")
+        self.assertEqual([item.args[0][1] for item in run.call_args_list], ["stop", "kill"])
+
+
+class SharedPathsTest(unittest.TestCase):
+    def test_backend_paths_and_opencode_import_share_one_module(self):
+        import run_funs_oc
+
+        self.assertIs(run_funs_oc, rf)
+        root = Path("/tmp/shared-paths-test")
+        self.assertEqual(rf.RunPaths(root).accounts_dir, root / "codex_accounts")
+        opencode = rf.RunPaths(root, backend="opencode_chatgpt_accounts", config_name="run_config_opencode.yaml")
+        self.assertEqual(opencode.accounts_dir, root / "opencode_chatgpt_accounts")
+        self.assertEqual(opencode.run_config, root / "run_config_opencode.yaml")
+        external = rf.RunPaths(root, Path("/tmp/original-accounts"), backend="opencode_chatgpt_accounts")
+        self.assertEqual(external.accounts_dir, Path("/tmp/original-accounts"))
 
 
 if __name__ == "__main__":

@@ -16,14 +16,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import run_controller as accounts_controller
-import run_controller_with_api_key as api_controller
+import run_controller as controller
+import run_backends as rb
 import run_funs as rf
 import src.agents
 from src.agents.agent_v1.prepare_run import prepare_run
 
 
-CONTROLLERS = (accounts_controller, api_controller)
+BACKENDS = (rb.CODEX_CHATGPT, rb.CODEX_API_KEY)
 
 
 class AgentPreparationTest(unittest.TestCase):
@@ -35,9 +35,11 @@ class AgentPreparationTest(unittest.TestCase):
             with self.subTest(settings=settings), tempfile.TemporaryDirectory() as directory:
                 run_dir = Path(directory)
                 config = {"agent": "agent_v1", "games": ["private-task-id-for-test"],
-                          "custom_setting": {"value": "do-not-expose-raw-run-config"}, **settings}
+                          "agent_parameters": {
+                              "custom_setting": {"value": "do-not-expose-raw-run-config"}, **settings,
+                          }}
                 original = deepcopy(config)
-                result = prepare_run(run_dir, "http://env-server:19234", "public-alias", config)
+                result = prepare_run(run_dir, "http://env-server:19234", "public-alias", config["agent_parameters"])
                 self.assertEqual(result.command, [
                     "python3", "agent_runner.py", "public-alias", "--model", model,
                     "--reasoning-effort", effort,
@@ -87,11 +89,13 @@ class AgentPreparationTest(unittest.TestCase):
             config_path = root / "run.yaml"
             for settings in ({}, *({"agent": name} for name in
                                   (None, "", 42, [], "missing", "../agent_v1", "agent_v1.prepare_run", "9bad"))):
-                config_path.write_text(yaml.safe_dump({
-                    "environment": "example", "games": ["counter"], "codex_accounts": ["codex01"], **settings,
-                }))
-                for controller in CONTROLLERS:
-                    with self.subTest(controller=controller.__name__, settings=settings), \
+                for backend_name in BACKENDS:
+                    config_path.write_text(yaml.safe_dump({
+                        "backend": backend_name, "environment": "example", "games": ["counter"],
+                        "accounts": ["codex01"] if backend_name == rb.CODEX_CHATGPT else [],
+                        "agent_parameters": {}, **settings,
+                    }))
+                    with self.subTest(backend=backend_name, settings=settings), \
                             self.assertRaisesRegex(RuntimeError, "agent"):
                         controller.parse_run_config(config_path, paths=rf.RunPaths(root))
 
@@ -105,6 +109,7 @@ class AgentPreparationTest(unittest.TestCase):
 from agent_api import AgentMount, LaunchPreparation
 
 def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_files_dir=None):
+    assert set(parsed_run_config) == {"model", "custom_value"}
     assert parsed_run_config["model"] == {"custom": "format"}
     return LaunchPreparation(
         command=["custom-program", game_alias, parsed_run_config["custom_value"]],
@@ -118,30 +123,37 @@ def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_file
             accounts = root / "codex_accounts"
             (accounts / "codex01").mkdir(parents=True)
             stack.enter_context(patch.dict(os.environ, {"OPENAI_API_KEY": "test-only"}))
-            stack.enter_context(patch.object(accounts_controller, "clean_codex_account"))
+            stack.enter_context(patch.object(rb, "clean_codex_account"))
             stack.enter_context(patch.object(rf, "log_info"))
             for name in ("src.agents.custom_agent", "src.agents.custom_agent.prepare_run"):
                 stack.callback(sys.modules.pop, name, None)
             importlib.invalidate_caches()
             settings = {
                 "agent": "custom_agent", "environment": "arc3", "games": ["private-game"],
-                "codex_accounts": ["codex01"], "custom_value": "kept", "model": {"custom": "format"},
+                "agent_parameters": {"custom_value": "kept", "model": {"custom": "format"}},
             }
             config_path = root / "config.yaml"
-            config_path.write_text(yaml.safe_dump(settings))
             images = rf.RunImages.create()
             names = rf.build_container_names(settings["games"])
 
-            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images, paths):
-                return launch_agent(slots[0], "public-alias", "private-game").process.poll()
+            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images, paths, finalize_game):
+                return launch_agent(slots[0], "public-alias", "private-game", lambda: None).process.poll()
 
-            for controller in CONTROLLERS:
-                with self.subTest(controller=controller.__name__), \
+            for backend_name in BACKENDS:
+                run_settings = dict(settings, backend=backend_name,
+                                    accounts=["codex01"] if backend_name == rb.CODEX_CHATGPT else [])
+                config_path.write_text(yaml.safe_dump(run_settings))
+                with self.subTest(backend=backend_name), \
                         patch.object(rf, "run_scheduler", side_effect=schedule), \
                         patch.object(controller.subprocess, "Popen", return_value=Mock(poll=Mock(return_value=0))) as popen:
                     config = controller.parse_run_config(config_path, paths=rf.RunPaths(root))
-                    self.assertEqual(config.parsed_run_config, settings)
-                    self.assertEqual(controller.run_scheduler(config, names, {"public-alias": "private-game"}, images=images), 0)
+                    self.assertEqual(config.parsed_run_config, run_settings)
+                    self.assertEqual(config.agent_parameters, settings["agent_parameters"])
+                    backend = rb.create_backend(config)
+                    backend.account_locks = {"codex01": 123}
+                    self.assertEqual(controller.run_scheduler(
+                        config, names, {"public-alias": "private-game"}, images=images, backend=backend,
+                    ), 0)
                     command = popen.call_args.args[0]
                     self.assertEqual(command[command.index(images.agent) + 1:], ["custom-program", "public-alias", "kept"])
                     self.assertIn(f"{root / 'run/public-alias'}:/task:ro", command)
@@ -152,10 +164,12 @@ def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_file
                     self.assertNotIn("--model", command)
                     self.assertIn("--pull=never", command)
                     self.assertEqual(command[command.index("--network") + 1], names.internal_network)
-                    if controller is accounts_controller:
+                    if backend_name == rb.CODEX_CHATGPT:
                         self.assertIn(f"{accounts / 'codex01'}:/home/user/.codex", command)
                     else:
-                        self.assertIn("CODEX_API_KEY=test-only", command)
+                        self.assertIn("CODEX_API_KEY", command)
+                        self.assertNotIn("test-only", repr(command))
+                        self.assertEqual(popen.call_args.kwargs["env"]["CODEX_API_KEY"], "test-only")
 
 
 if __name__ == "__main__":
