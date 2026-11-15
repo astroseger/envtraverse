@@ -7,4 +7,5 @@
 !/check_account.sh
 !/clean_account.sh
 !/account_tools.py
+!/account_locks.py
 !/README.md

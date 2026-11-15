@@ -22,6 +22,6 @@ codex_lock_account() {
     exec {CODEX_ACCOUNT_LOCK_FD}>>"$lock_path"
     umask "$old_umask"
   fi
-  python3 "$(dirname -- "${BASH_SOURCE[0]}")/../src/account_locks.py" \
+  python3 "$(dirname -- "${BASH_SOURCE[0]}")/account_locks.py" \
     "$account_path" --kind codex --lock-fd "$CODEX_ACCOUNT_LOCK_FD"
 }

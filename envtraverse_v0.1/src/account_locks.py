@@ -1,4 +1,8 @@
-"""Shared advisory account locks and checks for surviving Docker account users."""
+"""Shared advisory account locks and checks for surviving Docker account users.
+
+The standalone codex_accounts and opencode_chatgpt_accounts folders each bundle
+an identical copy of this module. Update all three copies together.
+"""
 from __future__ import annotations
 
 import argparse

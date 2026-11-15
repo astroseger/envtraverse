@@ -20,6 +20,9 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from opencode_chatgpt_accounts import account_tools as accounts
+
 IMAGE = f"opencode-chatgpt-accounts:2.3.0-uid{os.getuid()}-gid{os.getgid()}"
 
 
@@ -41,9 +44,6 @@ class OpenCodeUsageIntegrationTest(unittest.TestCase):
         )))
         self.account = self.directory / "synthetic account"
         self.account.mkdir(mode=0o700)
-        accounts = load_module(
-            "opencode_usage_test_accounts", ROOT / "opencode_chatgpt_accounts/account_tools.py",
-        )
         # Do not build or pull an image implicitly in an offline integration test.
         self.docker = accounts.Docker(IMAGE, 30)
 

@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -16,6 +17,11 @@ sys.path.insert(0, str(ROOT))
 from src.account_locks import account_lock
 
 SCRIPTS = ROOT / "codex_accounts"
+TOOL_FILES = (
+    "Dockerfile", "build_docker.sh", "account_lock.sh", "account_locks.py",
+    "prepare_account.sh", "check_account.sh", "check_account.py",
+    "check_account_run.sh", "clean_account.sh", "find_and_move_account.sh",
+)
 DOCKER_STUB = r'''#!/usr/bin/env python3
 import fcntl, json, os, sys, time
 from pathlib import Path
@@ -50,6 +56,12 @@ else:
 class CodexAccountLocksTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        # Copy only tooling, never the source folder's real account directories.
+        # The renamed folder has no checkout or src sibling to satisfy imports.
+        self.scripts = self.root / "portable codex tools"
+        self.scripts.mkdir()
+        for name in TOOL_FILES:
+            shutil.copyfile(SCRIPTS / name, self.scripts / name)
         self.account = self.root / "account with spaces"
         self.account.mkdir()
         (self.account / "auth.json").write_text("synthetic auth bytes\n")
@@ -60,6 +72,8 @@ class CodexAccountLocksTest(unittest.TestCase):
         self.executable("docker", DOCKER_STUB)
         self.env = {**os.environ, "PATH": f"{self.binary}:{os.environ['PATH']}",
                     "TEST_ACCOUNT": str(self.account), "TEST_DOCKER_LOG": str(self.log)}
+        self.env.pop("PYTHONPATH", None)
+        self.env.pop("PYTHONHOME", None)
 
     def executable(self, name, contents):
         path = self.binary / name
@@ -68,7 +82,7 @@ class CodexAccountLocksTest(unittest.TestCase):
 
     def run_script(self, script, account=None, *args, pass_fds=(), **env):
         account = self.account if account is None else account
-        return subprocess.run(["bash", str(SCRIPTS / script), str(account), *map(str, args)],
+        return subprocess.run(["bash", str(self.scripts / script), str(account), *map(str, args)],
                               cwd=self.root, env={**self.env, "TEST_ACCOUNT": str(account), **env},
                               capture_output=True, text=True, timeout=10, pass_fds=pass_fds)
 
@@ -139,7 +153,7 @@ class CodexAccountLocksTest(unittest.TestCase):
         active = Path(str(self.log) + ".active")
         with account_lock(self.account, kind="codex") as descriptor:
             with subprocess.Popen(
-                ["bash", str(SCRIPTS / "check_account.sh"), str(self.account), "--lock-fd", str(descriptor)],
+                ["bash", str(self.scripts / "check_account.sh"), str(self.account), "--lock-fd", str(descriptor)],
                 cwd=self.root, env={**self.env, "WAIT_FOR_INTERRUPT": "1"}, pass_fds=(descriptor,),
                 start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             ) as process:

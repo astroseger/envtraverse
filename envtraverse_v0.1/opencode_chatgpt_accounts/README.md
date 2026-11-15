@@ -7,7 +7,13 @@ and conversation history in `opencode.db`; this tooling uses its credential
 export/import commands instead of editing SQLite.
 
 Requires Linux, Bash, Python 3.10+, Docker, and `flock`. No host OpenCode or Node
-installation is needed. The shell entry points share `account_tools.py`.
+installation is needed.
+
+This folder is self-contained: copy its scripts, Python helpers, and `Dockerfile`
+to another location and run them there. No `src/` directory or Codex account tools
+are required. The shell entry points use the local `account_tools.py` and bundled
+`account_locks.py`. Pass the existing account path to the copied tools to keep
+using credentials in place.
 
 ## Usage
 
@@ -83,7 +89,9 @@ process uses the account. Temporary credential exports are for offline cleanup
 only. Do not use them to run an online account clone or restore an older export
 over credentials that have since refreshed.
 
-The OpenCode experiment controller calls `clean_account.sh` before every fresh
+### Use with the EnvTraverse controller
+
+The EnvTraverse controller calls `clean_account.sh` before every fresh
 game, reusing its held account lock and built agent image. The verified fresh
 database replaces the data at the selected account path, and the old state is
 deleted before the online game starts. Cleanup therefore removes previous games
@@ -102,14 +110,16 @@ usage that was never reported or persisted cannot be recovered.
 The sibling `.<account>.opencode.pending-usage.json` marker remains until a
 snapshot has been saved successfully. A collection failure or controller crash
 therefore blocks account commands and subsequent controller preflight/cleanup.
-From the repository root, recover with:
+If such a marker is present, recover usage with the experiment controller that
+created it. For EnvTraverse, run this command from its repository directory:
 
 ```bash
 python3 src/controller/opencode_usage.py ACCOUNT
 # Optionally reuse an existing compatible image with --image SAME_VERSION_IMAGE.
 ```
 
-Recovery verifies that the previous game container has stopped, collects usage
+This recovery script belongs to EnvTraverse, not the standalone account tools.
+It verifies that the previous game container has stopped, collects usage
 from the same account path, and clears the marker only after saving the snapshot.
 From another directory, invoke the script by its absolute path; relative account
 paths resolve against your current working directory.

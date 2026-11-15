@@ -8,8 +8,10 @@ import subprocess
 import sys
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.account_locks import AccountLockError, account_lock, ensure_account_not_in_use
+if __package__:
+    from .account_locks import AccountLockError, account_lock, ensure_account_not_in_use
+else:
+    from account_locks import AccountLockError, account_lock, ensure_account_not_in_use
 
 
 class CheckError(RuntimeError):

@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import redirect_stderr
 import copy
 import fcntl
-import importlib.util
 import io
 import json
 import os
@@ -11,15 +10,21 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "opencode_chatgpt_accounts"
-SPEC = importlib.util.spec_from_file_location("opencode_account_tools", SCRIPTS / "account_tools.py")
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+sys.path.insert(0, str(ROOT))
+from opencode_chatgpt_accounts import account_tools as MODULE
+from src.account_locks import account_lock as controller_account_lock
+
+TOOL_FILES = (
+    "Dockerfile", "build_docker.sh", "account_tools.py", "account_locks.py",
+    "prepare_account.sh", "check_account.sh", "clean_account.sh",
+)
 IMAGE = f"opencode-chatgpt-accounts:2.3.0-uid{os.getuid()}-gid{os.getgid()}"
 CREDENTIALS = [
     {"id": "cred_chatgpt", "integrationID": "openai", "label": "ChatGPT", "active": True,
@@ -136,6 +141,11 @@ exec bash "$@"
 class OpenCodeAccountsTest(unittest.TestCase):
     def setUp(self):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        # Explicit source allowlist: never copy any real account directories.
+        self.scripts = self.directory / "portable opencode tools"
+        self.scripts.mkdir()
+        for name in TOOL_FILES:
+            shutil.copyfile(SCRIPTS / name, self.scripts / name)
         self.account = self.directory / "account with spaces,comma"
         self.account.mkdir(mode=0o700)
         self.database = self.account / "opencode.db"
@@ -153,10 +163,12 @@ class OpenCodeAccountsTest(unittest.TestCase):
         self.env = dict(os.environ, PATH=f"{binary_dir}:{os.environ['PATH']}",
                         TEST_ROOT=str(self.directory), OPENAI_API_KEY="test-host-key-not-forwarded")
         self.env.pop("OPENCODE_MODEL", None)
+        self.env.pop("PYTHONPATH", None)
+        self.env.pop("PYTHONHOME", None)
 
     def run_script(self, name, *args, pass_fds=(), **environment):
         result = subprocess.run(
-            ["bash", "-c", SHELL, "opencode-accounts-test", str(SCRIPTS / name), *map(str, args)],
+            ["bash", "-c", SHELL, "opencode-accounts-test", str(self.scripts / name), *map(str, args)],
             env=dict(self.env, **environment), cwd=self.directory,
             capture_output=True, text=True, timeout=15, pass_fds=pass_fds,
         )
@@ -337,7 +349,8 @@ class OpenCodeAccountsTest(unittest.TestCase):
                 result = self.run_script(script, self.account, *extra)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("uncollected game usage", result.stderr)
-                self.assertIn("opencode_usage.py", result.stderr)
+                self.assertIn("controller", result.stderr)
+                self.assertNotIn(str(self.scripts.parent / "src"), result.stderr)
                 self.assertEqual(self.commands(), [])
                 self.assert_original_preserved()
         marker.unlink()
@@ -357,7 +370,7 @@ class OpenCodeAccountsTest(unittest.TestCase):
     def test_controller_lock_survives_clean_subprocess_using_its_image(self):
         image = "opencode-agent:test-controller-image"
         lock_path = self.account.parent / f".{self.account.name}.opencode.lock"
-        with MODULE.account_lock(self.account) as descriptor:
+        with controller_account_lock(self.account, kind="opencode") as descriptor:
             result = self.run_script(
                 "clean_account.sh", self.account, "--lock-fd", descriptor, "--image", image,
                 pass_fds=(descriptor,), FAIL_QUERY="1", FAIL_BUILD="1",
@@ -377,6 +390,18 @@ class OpenCodeAccountsTest(unittest.TestCase):
         # The original owner still determines when the reservation ends.
         with MODULE.account_lock(self.account):
             pass
+
+    def test_isolated_clean_rejects_wrong_inherited_descriptor_without_mutation(self):
+        with (self.directory / "wrong.lock").open("a") as wrong:
+            result = self.run_script(
+                "clean_account.sh", self.account, "--lock-fd", wrong.fileno(),
+                "--image", "unused", pass_fds=(wrong.fileno(),),
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("account lock", result.stderr)
+            os.fstat(wrong.fileno())
+        self.assertEqual(self.commands(), [])
+        self.assert_original_preserved()
 
     def test_borrowed_lock_is_acquired_without_being_closed_or_unlocked(self):
         lock_path = self.account.parent / f".{self.account.name}.opencode.lock"

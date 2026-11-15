@@ -2,6 +2,13 @@
 
 Requires Linux, Bash, Python 3.10+, Docker, and `flock`.
 
+This folder works independently of the rest of the repository. Copy its scripts,
+Python helpers, and Dockerfile together to use them elsewhere; no repository
+imports or Python package installation are required. The bundled
+`account_locks.py` provides the same locking behavior as the experiment
+controller. Account paths remain explicit arguments, so the copied tools can
+use an existing account in place.
+
 Account commands automatically build the shared account-tools image if it is
 missing. To build it ahead of time (or do nothing if it already exists):
 
