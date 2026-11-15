@@ -1,10 +1,11 @@
 # Running experiments
 
-This guide covers the supplied Codex and OpenCode agents and shared controller. For the framework's
-interaction model and deliberate isolation policy, see the
+Use this guide to choose a configuration, prepare an account, run an experiment,
+and find its results. For how agents and environments interact, see the
 [framework README](../../README.md).
 
-**Run all commands below from `envtraverse_v0.1/`.**
+Unless stated otherwise, the commands below assume you are in the repository
+directory, `envtraverse_v0.1/`.
 
 ## Requirements
 
@@ -14,15 +15,42 @@ interaction model and deliberate isolation policy, see the
 - Any credentials required by the environment, such as `ARC_API_KEY`.
 - For Terminal-Bench: Python 3.12+, Git, and Docker Compose v2.
 
-The runners build the agent, server, and proxy images automatically, including
-the selected environment's Python dependencies.
-
-## First run with a subscription account
-
-Install PyYAML and prepare an account directory:
+Install the controller's Python dependency:
 
 ```bash
 python3 -m pip install PyYAML
+```
+
+The runners build the agent, server, and proxy images automatically, including
+the selected environment's Python dependencies.
+
+## Choose a backend
+
+The configuration's `backend` selects how the agent signs in. Choose the option
+that matches the credentials you want to use:
+
+| `backend` | Credentials | Agent family | Games running at once |
+| --- | --- | --- | --- |
+| `codex_chatgpt_accounts` | ChatGPT accounts in `codex_accounts/` | Codex | One per account |
+| `opencode_chatgpt_accounts` | ChatGPT accounts in `opencode_chatgpt_accounts/` | OpenCode | One per account |
+| `codex_openai_api_key` | `OPENAI_API_KEY` in your shell | Codex | All configured games, or a `max_parallel_games` limit |
+
+Account directories are under your [experiment directory](#choose-a-run-root)
+unless you select another location with `--accounts-dir`. Omitting `backend`
+selects `codex_chatgpt_accounts`.
+
+Follow the Codex example below, the [OpenCode instructions](#run-with-opencode-chatgpt),
+or the [API-key instructions](#run-with-an-api-key).
+
+Each setup example describes a separate experiment. After copying a new example,
+apply your account and model settings to the new file; it does not inherit edits
+from a previous configuration.
+
+## First run with Codex ChatGPT
+
+Prepare an account directory:
+
+```bash
 ./codex_accounts/prepare_account.sh codex_accounts/codex01
 ./codex_accounts/check_account.sh codex_accounts/codex01
 ```
@@ -30,16 +58,14 @@ python3 -m pip install PyYAML
 Follow the device-authentication instructions. The scripts build their account
 tools image on first use; see [account tools](../../codex_accounts/README.md).
 
-The supplied [run_config.yaml](../../run_config_examples/run_config.yaml) selects the baseline agent
-and the counter example. Tracked presets live in `run_config_examples/`; make a
-local copy for your experiment:
+Start with the [counter example](../../run_config_examples/run_config.yaml).
+Copy it to `run_config.yaml`, the file the controller reads by default:
 
 ```bash
 cp run_config_examples/run_config.yaml run_config.yaml
 ```
 
-The checkout's local `run_config.yaml` is ignored by Git. A complete configuration
-with an explicit target is:
+Edit the copy to choose your account, model, and reasoning effort. For example:
 
 ```yaml
 backend: codex_chatgpt_accounts
@@ -58,80 +84,101 @@ Set `model` and `reasoning_effort` inside `agent_parameters` to the configuratio
 you want to study; both are required by the bundled agents. Start the run:
 
 ```bash
-python3 run_controller.py --run-config run_config.yaml
+python3 run_controller.py
 ```
 
-Results go to `<run-root>/run/`. The run root defaults to the caller's working
-directory at startup, which is the checkout for the commands above.
-Rename or archive an existing `run/` in the selected root before another
-experiment. Passing a different configuration path alone does not change this
-output location. For long experiments, use `tmux` or `screen`.
+The controller builds the required images, checks the account, and starts the
+configured task. Results go to `run/` in your current directory. See
+[Find and keep the results](#find-and-keep-the-results) for the output files.
 
-## Choose a backend
+Before another experiment, archive the previous `run/` or choose a fresh
+[experiment directory](#choose-a-run-root). For long experiments, use `tmux`
+or `screen`.
 
-`backend` selects authentication and account handling; `agent` independently
-selects the compatible agent implementation.
+## Run with OpenCode ChatGPT
 
-| Backend | Credentials | Concurrency |
-| --- | --- | --- |
-| `codex_chatgpt_accounts` | `accounts` under `codex_accounts/` | One game per account |
-| `opencode_chatgpt_accounts` | `accounts` under `opencode_chatgpt_accounts/` | One game per account |
-| `codex_openai_api_key` | Host `OPENAI_API_KEY` | `max_parallel_games: all` or a positive integer |
-
-The API-key concurrency limit defaults to `all`. Any `max_parallel_games` key
-on a ChatGPT backend is an error, even if its value is `all`. Model and reasoning
-settings retain the selected agent's behavior; OpenCode requires both explicitly.
-
-For OpenCode, prepare an account with the
-[OpenCode account tools](../../opencode_chatgpt_accounts/README.md), then run:
+OpenCode uses its own account directory. Prepare one and follow the login
+instructions:
 
 ```bash
-python3 run_controller.py --run-config run_config_examples/run_config_opencode.yaml
+./opencode_chatgpt_accounts/prepare_account.sh opencode_chatgpt_accounts/account01
+cp run_config_examples/run_config_opencode.yaml run_config.yaml
 ```
 
-The supplied config selects `opencode_agent_v1_08_wstop3`. Its account is mounted
-in place; current credentials are retained when history is cleaned between games.
+Edit your copy: set `accounts: [account01]`, choose `agent_parameters.model` and
+`agent_parameters.reasoning_effort`, and keep these selections:
 
-Configurations without `backend` default to Codex ChatGPT. The controller uses
-`run_config.yaml` by default; select another configuration with `--run-config`.
+```yaml
+backend: opencode_chatgpt_accounts
+agent: opencode_agent_v1_08_wstop3
+```
 
-## Agent parameters and legacy configurations
+Then run:
 
-Put runtime agent settings under `agent_parameters`: model and reasoning effort,
-client and supervisor timeouts, recovery settings, OpenCode options, and
-`codex_account_fast_service_tier`. The selected agent/backend validates its own
-settings; custom agents may use additional keys and structured values. Omitted
-settings retain the agent's existing defaults. `agent_docker_build_args` and
-the `runner` resource limits remain separate top-level settings.
+```bash
+python3 run_controller.py
+```
 
-For `codex_chatgpt_accounts` only, the loader accepts these legacy locations and
-converts them once before passing configuration to the controller and hooks:
+The controller checks each account before running games. It uses the original
+account directory so refreshed credentials are saved there. It clears history
+between games while preserving credentials. See the
+[OpenCode account guide](../../opencode_chatgpt_accounts/README.md) for account
+commands and [OpenCode agent settings](../../src/agents/opencode_agent_v1_08_wstop3/README.md#configuration)
+for available options.
 
-| Legacy root key | Normalized location |
-| --- | --- |
-| `codex_accounts` | `accounts` |
-| `model` | `agent_parameters.model` |
-| `reasoning_effort` | `agent_parameters.reasoning_effort` |
-| `http_read_timeout_seconds` | `agent_parameters.http_read_timeout_seconds` |
-| `supervisor_inactivity_timeout_seconds` | `agent_parameters.supervisor_inactivity_timeout_seconds` |
-| `recovery_delay_seconds` | `agent_parameters.recovery_delay_seconds` |
-| `max_recovery_attempts` | `agent_parameters.max_recovery_attempts` |
-| `codex_account_fast_service_tier` | `agent_parameters.codex_account_fast_service_tier` |
+## Run with an API key
 
-Do not specify the same parameter in both locations, even with equal values.
-Different parameters may use different locations during migration. OpenCode and
-API-key configurations must use `agent_parameters` directly; account aliases
-`codex_accounts` and `opencode_accounts` are rejected for those backends. Both
-ChatGPT backends use `accounts` in new configurations.
+API-key runs may be **substantially** more expensive than runs backed by
+authenticated Codex accounts.
+
+To try the counter task, copy the
+[API-key example](../../run_config_examples/run_config_api_key.yaml), which selects
+`backend: codex_openai_api_key`. Edit its model and effort before running:
+
+```bash
+cp run_config_examples/run_config_api_key.yaml run_config.yaml
+# Edit run_config.yaml for your experiment.
+export OPENAI_API_KEY='your-openai-api-key'
+python3 run_controller.py
+```
+
+The controller asks you to type `continue` to confirm API-key use. It then builds
+the images and checks the key before starting games. Account directories are
+not required, and the `accounts` list is unused. To use another Codex
+configuration, set its `backend` to `codex_openai_api_key`.
+
+Omit `max_parallel_games` or set it to `all` to run all listed tasks concurrently.
+Set a positive integer, such as `max_parallel_games: 2`, to limit active games.
+The limit includes server startup and game shutdown, and does not limit individual
+model requests or subagents. By default, each agent container has a 10 GiB memory
+limit; environment servers and Terminal-Bench task containers use additional
+resources.
+
+`OPENAI_API_KEY` authenticates the agent. Keep environment credentials in the
+environment's own `environment_variables` configuration. For Terminal-Bench,
+follow the [manual runtime instructions](../../README_tb.md#api-key-runs-and-manual-runtime)
+before starting the controller: the API-key confirmation requires an interactive
+terminal, which `run_controller_tb.py` does not provide to its child controller.
+
+## Agent parameters
+
+Put model, reasoning effort, client and supervisor timeouts, recovery settings,
+and native Codex or OpenCode options inside `agent_parameters`. Both `model` and
+`reasoning_effort` are required by the supplied agents; optional settings retain
+their defaults when omitted.
+
+The configuration's `agent` field chooses which implementation uses those
+settings. Custom agents may accept additional settings or structured values.
+Keep `agent_docker_build_args` and `runner` resource limits outside
+`agent_parameters`.
+
+If you are reusing a configuration written for an earlier version, see
+[Using older configurations](#using-older-configurations).
 
 ## Choose a run root
 
-The controller accepts `--run-root`. Put the experiment's configuration and
-account directories there, then run the controller from the source checkout:
-
-```bash
-python3 run_controller.py --run-root /path/to/experiment
-```
+The **run root** is your experiment directory. It defaults to the directory
+where you start the controller. Use `--run-root` to choose another location.
 
 | Path under the run root | Purpose |
 | --- | --- |
@@ -141,83 +188,71 @@ python3 run_controller.py --run-root /path/to/experiment
 | `run/` | Workspaces, observations, logs, and `docker_images.json` |
 | `run_tb/` | Terminal-Bench runtime socket, logs, and private results |
 
-Without `--run-root`, these paths are under the caller's working directory at
-startup. You can therefore run from an experiment directory using the controller's
-absolute path:
+To keep a Codex experiment elsewhere while reusing the account you prepared
+above, copy your edited configuration and point to the existing account directory:
+
+```bash
+mkdir -p /path/to/experiment
+cp run_config.yaml /path/to/experiment/run_config.yaml
+python3 run_controller.py \
+  --run-root /path/to/experiment \
+  --accounts-dir "$PWD/codex_accounts"
+```
+
+The copied configuration must list the accounts you prepared. For an OpenCode
+configuration, use `--accounts-dir "$PWD/opencode_chatgpt_accounts"` instead.
+`--accounts-dir` uses credentials in their existing location; you do not need to
+copy account folders.
+
+Alternatively, prepare accounts inside the experiment directory. For example:
+
+```bash
+./codex_accounts/prepare_account.sh /path/to/experiment/codex_accounts/codex01
+```
+
+Then `--accounts-dir` is unnecessary. From the experiment directory itself,
+you can also omit `--run-root`:
 
 ```bash
 cd /path/to/experiment
 python3 /path/to/envtraverse_v0.1/run_controller.py
 ```
 
-Relative `--run-root` and explicit `--run-config` arguments resolve against the
-caller's working directory. An explicit configuration path never changes the run
-root. Relative `server_mounts[].source` paths inside the YAML resolve against the
-run root, even when the configuration file is elsewhere. Absolute mount sources
-retain their specified locations.
+Configuration selection and output location are separate:
 
-`--accounts-dir /path/to/accounts` overrides the account parent directory for
-either ChatGPT backend without moving or copying credentials.
+- `--run-config path/to/config.yaml` selects a file and leaves the run root unchanged.
+- Relative command-line paths use the directory where you start the controller.
+- Relative `server_mounts[].source` paths inside the YAML use the run root.
 
-Agent and environment source, Docker build files, account helper scripts, and
-Terminal-Bench datasets and virtual environment stay in the source checkout.
-The root controller scripts load their shared helpers from `src/controller/`.
-For example, prepare an external account with:
+For example, selecting a file in `run_config_examples/` still saves results under
+`run/` in your current directory. You can copy an example to a local
+`run_config.yaml`, which is ignored by Git in this checkout, or pass the example
+path directly after checking its account and model settings.
 
-```bash
-./codex_accounts/prepare_account.sh /path/to/experiment/codex_accounts/codex01
-```
-
-For Terminal-Bench, the wrapper passes the same root to the runtime and controller:
-
-```bash
-python3 run_controller_tb.py --run-root /path/to/experiment --benchmarks 4.0
-```
-
-With manual runtime startup, pass the same `--run-root` to `host_runtime/run.sh`
-and the selected controller. Existing outputs are checked only in the selected
-run root.
+Source code, build files, account helper scripts, and downloaded Terminal-Bench
+datasets stay in the repository. The Terminal-Bench controller uses the selected
+run root for both the runtime and the experiment. For manual runtime startup,
+pass the same `--run-root` to `host_runtime/run.sh` and `run_controller.py`; see
+[the Terminal-Bench guide](../../README_tb.md).
 
 ## Choose an agent
 
-Change the `agent` field in your configuration:
+Change the `agent` field in your configuration to select an implementation that
+supports your backend. These are the main choices:
 
-| Agent | `agent` value | Intended environments |
-| --- | --- | --- |
-| Baseline | `agent_v1` | All bundled environments |
-| Stop-and-report | `agent_v1_01_wstop` | All bundled environments |
-| Stop after repeated inactivity | `agent_v1_08_wstop3` | All bundled environments |
-| Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | ARC-AGI-3 adapters that emit `metadata.txt` |
+| Agent | `agent` value | Compatible backends | Intended environments |
+| --- | --- | --- | --- |
+| Codex baseline | `agent_v1` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
+| Codex stop-and-report | `agent_v1_01_wstop` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
+| Codex stop after repeated inactivity | `agent_v1_08_wstop3` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
+| OpenCode stop after repeated inactivity | `opencode_agent_v1_08_wstop3` | `opencode_chatgpt_accounts` | All bundled environments |
+| Codex Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | `codex_chatgpt_accounts`, `codex_openai_api_key` | ARC-AGI-3 adapters that emit `metadata.txt` |
 
-For example, set `agent: agent_v1_01_wstop` to run Stop-and-report with the same
-tasks. Compare agents in separate experiments with the same environment settings.
-See [Agents](../../src/agents/README.md) for the implementations and integration
-instructions.
-
-### Agent Docker build arguments
-
-The controller accepts an optional `agent_docker_build_args` mapping. Each entry is
-passed as `--build-arg NAME=VALUE` when building the selected agent's Docker image.
-For example, `agent_v1_08_wstop3` supports selecting the Codex CLI version:
-
-```yaml
-agent: agent_v1_08_wstop3
-agent_docker_build_args:
-  CODEX_VERSION: "0.154.0"
-```
-
-The mapping defaults to `{}`, which preserves the selected Dockerfile's defaults.
-The agents `agent_v1`, `agent_v1_01_wstop`, and `agent_v1_08_wstop3` accept
-`CODEX_VERSION` and default to `0.154.0`. The agent
-`test_arc3_agent_v1_02_wstop_wreset` retains its fixed version and does not accept
-`CODEX_VERSION`.
-Use an exact version for reproducible runs.
-
-Names must match `ARG` declarations in the selected Dockerfile and values must be
-strings; quote numeric values in YAML. `USER_ID` and `GROUP_ID` are managed by the
-runner and cannot be overridden. Invalid settings fail before images are built.
-Arguments apply only to the agent image; server, proxy, and account-tools builds
-use their existing settings. Supplied arguments are recorded in `run/runner.log`.
+For a Codex backend, set `agent: agent_v1_01_wstop` to run Stop-and-report with
+the same tasks. Compare agents in separate experiments with the same environment
+settings. See [Agents](../../src/agents/README.md) for integration instructions
+and the [OpenCode agent guide](../../src/agents/opencode_agent_v1_08_wstop3/README.md)
+for its native options.
 
 ## Choose an environment
 
@@ -228,12 +263,15 @@ server. Both can be omitted when unused.
 
 ### ARC-AGI-3
 
-Edit the agent, game IDs, model, and effort in
-[run_config_arc3.yaml](../../run_config_examples/run_config_arc3.yaml), then run:
+Copy [the ARC-AGI-3 example](../../run_config_examples/run_config_arc3.yaml) for a
+new experiment. Edit the copy's accounts, agent, game IDs, model, and effort
+before launching:
 
 ```bash
+cp run_config_examples/run_config_arc3.yaml run_config.yaml
+# Edit run_config.yaml for your experiment.
 export ARC_API_KEY='your-arc-api-key'
-python3 run_controller.py --run-config run_config_examples/run_config_arc3.yaml
+python3 run_controller.py
 ```
 
 The supplied configuration forwards `ARC_API_KEY` to the server and uses
@@ -274,15 +312,18 @@ fields in disabled groups. Start with the supplied configurations:
 - [run_config_arc3_minimal_img_wnoise4.yaml](../../run_config_examples/run_config_arc3_minimal_img_wnoise4.yaml)
   adds a rotation schedule before homography and deformation.
 
-For example:
+For example, start an image-noise experiment with:
 
 ```bash
+cp run_config_examples/run_config_arc3_minimal_img_wnoise3.yaml run_config.yaml
+# Edit run_config.yaml, including your accounts, model, and effort.
 export ARC_API_KEY='your-arc-api-key'
-python3 run_controller.py --run-config run_config_examples/run_config_arc3_minimal_img_wnoise3.yaml
+python3 run_controller.py
 ```
 
-Use another listed configuration with the same command to select its variant.
-These configurations select `agent_v1`, game `ls20`, and non-competition mode.
+Copy another listed example to select its variant, then apply your experiment
+settings to that copy. These configurations select `agent_v1`, game `ls20`, and
+non-competition mode.
 The v3 examples produce 688×688 JPEG images from a 64×64 board; the v4 example
 produces 896×896 images to accommodate rotation. Coordinates always refer to the
 original board. Highlight actions advance the observation index without consuming
@@ -290,10 +331,13 @@ the game-solving budget.
 
 ### AGI Maze: individual labyrinths
 
-Edit [run_config_agimaze.yaml](../../run_config_examples/run_config_agimaze.yaml) and run:
+Copy [the AGI Maze example](../../run_config_examples/run_config_agimaze.yaml)
+and edit it for your experiment:
 
 ```bash
-python3 run_controller.py --run-config run_config_examples/run_config_agimaze.yaml
+cp run_config_examples/run_config_agimaze.yaml run_config.yaml
+# Edit run_config.yaml, including your accounts, model, and effort.
+python3 run_controller.py
 ```
 
 Task IDs are paths relative to the bundled
@@ -327,14 +371,19 @@ are filenames without `.json`. No environment API key is needed.
 ### Terminal-Bench
 
 Terminal-Bench needs a host runtime in addition to the agent and server containers.
-After preparing the accounts and configuration, run:
+For a new experiment with ChatGPT accounts, copy the small example and edit your
+account and model settings:
 
 ```bash
-python3 run_controller_tb.py --run-config run_config_examples/run_config_terminal_bench.yaml
+cp run_config_examples/run_config_terminal_bench.yaml run_config.yaml
+# Edit run_config.yaml for your experiment.
+python3 run_controller_tb.py
 ```
 
-The wrapper sets up the host runtime, starts the subscription controller, and
-waits for grading and cleanup. The supplied
+The example selects Codex. For OpenCode, follow the backend and agent changes
+in the [Terminal-Bench guide](../../README_tb.md). The wrapper sets up the host
+runtime, starts the experiment controller, and waits for grading and cleanup. The
+supplied
 [small configuration](../../run_config_examples/run_config_terminal_bench.yaml) has two tasks;
 [run_config_terminal_bench_2.1.yaml](../../run_config_examples/run_config_terminal_bench_2.1.yaml)
 contains the full supplied task list.
@@ -342,13 +391,15 @@ contains the full supplied task list.
 To run all 70 Science 0.1 tasks from [run_config_terminal_bench_science_0.1.yaml](../../run_config_examples/run_config_terminal_bench_science_0.1.yaml):
 
 ```bash
-python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_examples/run_config_terminal_bench_science_0.1.yaml
+cp run_config_examples/run_config_terminal_bench_science_0.1.yaml run_config.yaml
+# Edit the new copy's accounts, model, and effort before running.
+python3 run_controller_tb.py --benchmarks science-0.1
 ```
 
 The Science configuration uses `agent_v1_08_wstop3` with an HTTP read timeout of
-36300 seconds and a supervisor inactivity timeout of 39600 seconds. All four
-bundled agents accept these settings in `agent_parameters`; their defaults are 3900 and 7200
-seconds. See the [agent settings](../../src/agents/README.md) for details.
+36300 seconds and a supervisor inactivity timeout of 39600 seconds. The supplied
+agents accept these settings in `agent_parameters`; their defaults are 3900 and
+7200 seconds. See the [agent settings](../../src/agents/README.md) for details.
 
 `--benchmarks` accepts `2.1`, `3.0`, `4.0`, `science-0.1`, a comma-separated
 combination, or `all`. It selects datasets for setup and checks that the configured
@@ -363,51 +414,31 @@ discovery, and API-key runs.
 ## Run more tasks concurrently
 
 Each ChatGPT backend uses one worker per entry in `accounts` and queues
-remaining tasks. Prepare another account directory:
+remaining tasks. For Codex, prepare another account directory:
 
 ```bash
 ./codex_accounts/prepare_account.sh codex_accounts/codex02
 ```
 
-Then set `accounts: [codex01, codex02]`. Each directory is authenticated
-separately; directories using the same subscription share its usage limits.
-The controller reserves all selected accounts for its lifetime using OS locks.
-Standalone account commands use the same locks. A busy account fails immediately;
-after abrupt controller death, an active Docker container mounting the account
-also blocks reuse until stopped. Lock files stay on disk after release and should
-not be deleted. Codex needs no persistent recovery marker. OpenCode additionally
-preserves its database until per-game usage has been saved; see its
+Then set `accounts: [codex01, codex02]`. For OpenCode, use its account tools and
+list the corresponding names from `opencode_chatgpt_accounts/`. Each directory
+is authenticated separately; directories using the same subscription share its
+usage limits.
+
+An account can be used by only one running experiment or account command at a
+time. If an account is busy, the command stops with an error. After an interrupted
+run, stop any surviving container using the account before reusing it. Leave lock
+files in place; their presence alone does not mean the account is busy. OpenCode
+may also require saving the previous game's usage before account reuse; follow its
 [usage recovery instructions](../../opencode_chatgpt_accounts/README.md#cleaning-an-account).
 
+`max_parallel_games` is available only for the API-key backend. Including it in
+either ChatGPT backend's configuration is an error, even with the value `all`.
+
 The optional `codex_account_fast_service_tier: true` in `agent_parameters` enables
-the fast service tier for Codex subscription runs. Its default is `false`; the supplied Terminal-Bench
-2.1 configurations enable it, while the Science configuration leaves it disabled.
-
-## Run with an API key
-
-API-key runs may be **substantially** more expensive than runs backed by
-authenticated Codex accounts.
-
-Set `backend: codex_openai_api_key` in the configuration. The
-[API-key example](../../run_config_examples/run_config_api_key.yaml) runs the counter task:
-
-```bash
-export OPENAI_API_KEY='your-openai-api-key'
-python3 run_controller.py --run-config run_config_examples/run_config_api_key.yaml
-```
-
-The runner checks Codex with the API key and asks for `continue` before launching.
-Account lists are unused. By default all listed tasks can run concurrently;
-set `max_parallel_games: 2`, for example, to run at most two games at once. The
-limit includes server startup and game shutdown, and does not limit individual
-model requests or subagents. By default, each agent container has a 10 GiB memory
-limit; environment servers and Terminal-Bench task containers use additional
-resources.
-
-`OPENAI_API_KEY` authenticates the agent. Keep environment credentials in the
-environment's own `environment_variables` configuration. For Terminal-Bench,
-follow the [manual runtime instructions](../../README_tb.md#api-key-runs-and-manual-runtime)
-before starting this runner.
+the fast service tier for Codex subscription runs. Its default is `false`; the
+supplied Terminal-Bench 2.1 configurations enable it, while the Science
+configuration leaves it disabled.
 
 ## Find and keep the results
 
@@ -429,3 +460,57 @@ code reports execution status; task outcomes are recorded by the environment.
 
 See the [analysis guide](../../analysis_scripts/README.md) for reports, replay,
 token extraction, and run diagnostics.
+
+## Agent Docker build arguments
+
+The controller accepts an optional `agent_docker_build_args` mapping. Each entry is
+passed as `--build-arg NAME=VALUE` when building the selected agent's Docker image.
+For example, `agent_v1_08_wstop3` supports selecting the Codex CLI version:
+
+```yaml
+agent: agent_v1_08_wstop3
+agent_docker_build_args:
+  CODEX_VERSION: "0.154.0"
+```
+
+The mapping defaults to `{}`, which preserves the selected Dockerfile's defaults.
+The agents `agent_v1`, `agent_v1_01_wstop`, and `agent_v1_08_wstop3` accept
+`CODEX_VERSION` and default to `0.154.0`. The agent
+`test_arc3_agent_v1_02_wstop_wreset` retains its fixed version and does not accept
+`CODEX_VERSION`.
+Use an exact version for reproducible runs.
+
+Names must match `ARG` declarations in the selected Dockerfile and values must be
+strings; quote numeric values in YAML. `USER_ID` and `GROUP_ID` are managed by the
+runner and cannot be overridden. Invalid settings fail before images are built.
+Arguments apply only to the agent image; server, proxy, and account-tools builds
+use their existing settings. Supplied arguments are recorded in `run/runner.log`.
+
+## Using older configurations
+
+If you use one of the current examples, you can skip this section.
+
+For `codex_chatgpt_accounts`, configurations from earlier versions may still put
+agent settings at the top level of the YAML file. Those locations remain
+supported, but use the following layout when updating a file:
+
+| Old setting | Current setting |
+| --- | --- |
+| `codex_accounts` | `accounts` |
+| `model` | `agent_parameters.model` |
+| `reasoning_effort` | `agent_parameters.reasoning_effort` |
+| `http_read_timeout_seconds` | `agent_parameters.http_read_timeout_seconds` |
+| `supervisor_inactivity_timeout_seconds` | `agent_parameters.supervisor_inactivity_timeout_seconds` |
+| `recovery_delay_seconds` | `agent_parameters.recovery_delay_seconds` |
+| `max_recovery_attempts` | `agent_parameters.max_recovery_attempts` |
+| `codex_account_fast_service_tier` | `agent_parameters.codex_account_fast_service_tier` |
+
+For example, replace a top-level `model: ...` with `model: ...` inside
+`agent_parameters`. Move each setting rather than keeping both copies; duplicate
+settings are rejected even when their values match. You can move different
+settings separately while updating a Codex ChatGPT configuration.
+
+This compatibility applies only to Codex ChatGPT. OpenCode and API-key
+configurations require `agent_parameters` directly. Both ChatGPT backends use
+`accounts`; the old names `codex_accounts` and `opencode_accounts` are rejected
+for OpenCode and API-key configurations.
