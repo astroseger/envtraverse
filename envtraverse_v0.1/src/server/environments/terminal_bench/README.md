@@ -75,10 +75,11 @@ From the project root, install and list Science tasks with:
 
 Setup writes `host_runtime/tbscience-games.generated.yaml`. Use its game IDs in
 an `environment: terminal_bench` run configuration with the socket mount described
-below. The project supplies `run_config_terminal_bench_science_0.1.yaml` with all 70 release tasks:
+below. The project supplies
+`run_config_examples/run_config_terminal_bench_science_0.1.yaml` with all 70 release tasks:
 
 ```bash
-python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
+python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_examples/run_config_terminal_bench_science_0.1.yaml
 ```
 
 The wrapper forwards `--benchmarks` to setup and checks that every configured game
@@ -209,7 +210,7 @@ at `/run/terminal-bench/`. Only the socket directory is mounted there; task
 checkouts and private results remain on the host.
 
 All controllers and `host_runtime/run.sh` accept `--run-root`, defaulting to the
-source checkout. Relative mount sources, including `run_tb/socket/`, resolve
+caller's working directory at startup. Relative mount sources, including `run_tb/socket/`, resolve
 under that root. `run_controller_tb.py` forwards it to both the runtime and the
 controller; for manual startup, supply the same root to each. Datasets and the
 Harbor virtual environment retain their existing source-checkout locations.
@@ -224,8 +225,8 @@ supplies each task's alias as `session_id`; do not set a shared session ID in th
 configuration. These settings do not change Harbor's task time budgets or the
 short timeout for acknowledging cleanup.
 
-The four bundled agent variants accept top-level `http_read_timeout_seconds`
-and `supervisor_inactivity_timeout_seconds` run-config settings. Their defaults
+The four bundled agent variants accept `http_read_timeout_seconds`
+and `supervisor_inactivity_timeout_seconds` inside `agent_parameters`. Their defaults
 are 3900 seconds (65 minutes) and 7200 seconds (two hours). The Science configuration
 selects `agent_v1_08_wstop3` and raises these to 36300 and 39600 seconds. The
 supervisor measures time without `agent.log` updates, including initialization;

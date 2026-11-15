@@ -4,3 +4,8 @@
 **/host_runtime/.tb-data
 **/host_runtime/*.generated.yaml
 **/host_runtime/tests
+
+# Host-side libraries are not needed in agent or environment images.
+/controller/
+/account_locks.py
+/agent_api.py

@@ -16,7 +16,7 @@ import stat
 import sys
 from collections import deque
 from contextlib import ExitStack, contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
@@ -24,10 +24,10 @@ from uuid import uuid4
 
 import yaml
 
-from agent_api import LaunchPreparation
+from src.agent_api import LaunchPreparation
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 AGENTS_DIR = ROOT / "src" / "agents"
 ENVIRONMENTS_DIR = ROOT / "src" / "server" / "environments"
 CODEX_ACCOUNT_SCRIPTS_DIR = ROOT / "codex_accounts"
@@ -43,9 +43,9 @@ SERVER_MANAGED_VARIABLES = frozenset({"ENV_SERVER_HOST", "ENV_SERVER_PORT"})
 
 @dataclass(frozen=True)
 class RunPaths:
-    """Experiment paths, independent of the source checkout and caller's CWD."""
+    """Absolute experiment paths, defaulting to CWD when constructed."""
 
-    root: Path = ROOT
+    root: Path = field(default_factory=Path.cwd)
     accounts_root: Path | None = None
     backend: str = "codex_chatgpt_accounts"
     config_name: str = "run_config.yaml"
@@ -83,8 +83,8 @@ class RunPaths:
 
 
 def add_run_path_arguments(parser: argparse.ArgumentParser, *, config_name: str = "run_config.yaml") -> None:
-    parser.add_argument("--run-root", type=Path, default=ROOT,
-                        help=f"directory for configuration, accounts and outputs; default: {ROOT}")
+    parser.add_argument("--run-root", type=Path, default=Path.cwd(),
+                        help="directory for configuration, accounts and outputs; default: current working directory")
     parser.add_argument("--run-config", type=Path,
                         help=f"configuration file; default: <run-root>/{config_name}; "
                              "explicit relative paths use the caller's working directory")
@@ -158,7 +158,8 @@ def set_logger_name(name: str) -> None:
     LOGGER = logging.getLogger(name)
 
 
-def setup_runner_logging(paths: RunPaths = RunPaths()) -> None:
+def setup_runner_logging(paths: RunPaths | None = None) -> None:
+    paths = paths or RunPaths()
     if paths.runner_log.exists():
         raise RuntimeError(f"runner log already exists: {paths.runner_log}")
 
@@ -268,7 +269,8 @@ def resolve_model(config: dict[str, object], path: Path) -> str:
     return model + "#" + effort
 
 
-def validate_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) -> None:
+def validate_accounts(accounts: Sequence[str], *, paths: RunPaths | None = None) -> None:
+    paths = paths or RunPaths()
     if not accounts or len(set(accounts)) != len(accounts):
         raise RuntimeError("OpenCode account names must be nonempty and unique")
     for account in accounts:
@@ -283,7 +285,7 @@ def validate_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) 
 
 
 @contextmanager
-def lock_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) -> Iterator[dict[str, int]]:
+def lock_accounts(accounts: Sequence[str], *, paths: RunPaths | None = None) -> Iterator[dict[str, int]]:
     """Reserve original account directories through checks, execution and shutdown.
 
     The cleaner inherits its account's descriptor so it can use the same lock
@@ -291,8 +293,9 @@ def lock_accounts(accounts: Sequence[str], *, paths: RunPaths = RunPaths()) -> I
     """
     # Compatibility helper for OpenCode callers; backend adapters reserve their
     # account pools directly through the same shared lock implementation.
-    from account_locks import account_lock
+    from src.account_locks import account_lock
 
+    paths = paths or RunPaths()
     validate_accounts(accounts, paths=paths)
     with ExitStack() as cleanup:
         descriptors = {
@@ -357,8 +360,9 @@ def environment_directory(name: str) -> Path:
 
 
 def parse_environment_config(
-    config: dict[str, object], path: Path, *, paths: RunPaths = RunPaths(),
+    config: dict[str, object], path: Path, *, paths: RunPaths | None = None,
 ) -> EnvironmentConfig:
+    paths = paths or RunPaths()
     for key in ("competition", "tag"):
         if key in config:
             raise RuntimeError(f"move {key} in {path} into environment_parameters")
@@ -454,15 +458,17 @@ def validate_unique_games(games: list[str]) -> None:
         raise RuntimeError(f"games must be unique; duplicates: {duplicates}")
 
 
-def prepare_run_root(paths: RunPaths = RunPaths()) -> None:
+def prepare_run_root(paths: RunPaths | None = None) -> None:
+    paths = paths or RunPaths()
     if os.path.lexists(paths.run_dir):
         raise RuntimeError(f"run folder already exists: {paths.run_dir}")
     paths.root.mkdir(parents=True, exist_ok=True)
     paths.run_dir.mkdir()
 
 
-def make_run_writable(paths: RunPaths = RunPaths()) -> None:
+def make_run_writable(paths: RunPaths | None = None) -> None:
     """Restore owner writes after shutdown, without following symlinks."""
+    paths = paths or RunPaths()
     run_dir = paths.run_dir
     def report_error(exc: OSError) -> None:
         LOGGER.warning("could not restore run write permissions: %s", exc)
@@ -499,7 +505,8 @@ def initial_workspace_files(environment_name: str) -> Path | None:
     return source_dir
 
 
-def prepare_game_directory(game_alias: str, *, paths: RunPaths = RunPaths()) -> Path:
+def prepare_game_directory(game_alias: str, *, paths: RunPaths | None = None) -> Path:
+    paths = paths or RunPaths()
     game_dir = paths.run_dir / game_alias
     game_dir.mkdir()
     (game_dir / "server").mkdir()
@@ -631,9 +638,10 @@ def built_run_images(
     agent_name: str,
     *,
     agent_docker_build_args: dict[str, str] | None = None,
-    paths: RunPaths = RunPaths(),
+    paths: RunPaths | None = None,
 ) -> Iterator[RunImages]:
     """Own three unique tags across building, account checks and scheduling."""
+    paths = paths or RunPaths()
     images = RunImages.create()
     for image in asdict(images).values():
         if image_exists(image):
@@ -802,8 +810,9 @@ def docker_server_command(
     game_id: str,
     *,
     image: str,
-    paths: RunPaths = RunPaths(),
+    paths: RunPaths | None = None,
 ) -> list[str]:
+    paths = paths or RunPaths()
     command = [
         "docker", "run", "--rm", "--pull=never",
         "--name", container_name,
@@ -845,8 +854,9 @@ def start_server(
     game_id: str,
     *,
     image: str,
-    paths: RunPaths = RunPaths(),
+    paths: RunPaths | None = None,
 ) -> RunningContainer:
+    paths = paths or RunPaths()
     verify_environment_variables(environment)
     command = docker_server_command(
         container_name, internet_network, internal_network, environment, game_alias, game_id, image=image, paths=paths,
@@ -968,7 +978,7 @@ def run_scheduler(
     slots: Sequence[str],
     launch_agent: Callable[..., RunningContainer],
     finalize_game: Callable[[str, RunningGame], None] | None = None,
-    paths: RunPaths = RunPaths(),
+    paths: RunPaths | None = None,
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
@@ -976,6 +986,7 @@ def run_scheduler(
     account cleanup, and process launch. Each game is attempted once. The exit
     code is nonzero if any pair fails.
     """
+    paths = paths or RunPaths()
     slots = tuple(slots)
     if not slots or len(set(slots)) != len(slots):
         raise ValueError("Worker slots must be non-empty and unique")

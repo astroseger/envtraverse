@@ -65,6 +65,9 @@ Use [agent_v1/prepare_run.py](agent_v1/prepare_run.py) as a working example. The
 framework calls the hook on the host after the server is ready:
 
 ```python
+from src.agent_api import AgentMount, LaunchPreparation
+
+
 def prepare_run(
     run_dir,
     server_url,
@@ -81,7 +84,7 @@ identifier used to start the session. `initial_files_dir` contains optional
 public files supplied by the environment; make them available in the agent's
 workspace.
 
-Return a [LaunchPreparation](../../agent_api.py) with an argv `command`, any
+Return a [LaunchPreparation](../agent_api.py) with an argv `command`, any
 `AgentMount` entries, and an `environment` mapping. The hook decides how to pass
 the server URL and alias to its agent: a configuration file, command arguments,
 or environment variables are all possible.
@@ -126,7 +129,7 @@ The supplied runners authenticate Codex through subscription accounts or an
 OpenAI API key. An agent using another provider or local inference needs an
 adapted runner, for example to change authentication or expose a GPU or inference
 service. Shared scheduling and container helpers are in
-[run_funs.py](../../run_funs.py).
+[src/controller/run_funs.py](../controller/run_funs.py).
 
 Agent internet access is deliberately restricted to an allowlisted model-service
 proxy to reduce unintended information channels during evaluation. The runners

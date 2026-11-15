@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 extra=()
-run_root="$TB_PROJECT_DIR"
+run_root="$PWD"
 while (($#)); do
     case "$1" in
         --verbose) extra+=(--verbose); shift ;;
@@ -12,7 +12,7 @@ while (($#)); do
             shift 2 ;;
         -h|--help)
             echo 'Usage: host_runtime/run.sh [--run-root PATH] [--verbose]'
-            echo 'Starts the host runtime in the foreground. Defaults to the project directory.'
+            echo 'Starts the host runtime in the foreground. Defaults to the current working directory.'
             echo 'Refuses existing run/ or run_tb/ in the selected run root.'
             exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;

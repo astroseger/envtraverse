@@ -156,7 +156,8 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.host = self.root / "src/server/environments/terminal_bench/host_runtime"
         self.host.mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.root / SCRIPT.name)
-        for name in ("run_funs.py", "agent_api.py"):
+        (self.root / "src/controller").mkdir()
+        for name in ("src/controller/__init__.py", "src/controller/run_funs.py", "src/agent_api.py"):
             shutil.copyfile(SCRIPT.parent / name, self.root / name)
         helper = self.root / "fake_processes.py"
         helper.write_text(FAKE_PROCESSES)
@@ -187,7 +188,11 @@ class TerminalBenchControllerTests(unittest.TestCase):
                         except ProcessLookupError:
                             pass
 
-    def start(self, *, options=None, arguments=(), startup_timeout=None):
+    def start(self, *, options=None, arguments=(), startup_timeout=None, use_cwd_root=False):
+        # Lifecycle scenarios use the fake checkout explicitly; dedicated path
+        # tests exercise the default invocation directory without --run-root.
+        if not use_cwd_root and "--run-root" not in arguments:
+            arguments = ("--run-root", str(self.root), *arguments)
         (self.root / "scenario.json").write_text(json.dumps(options or {}))
         if startup_timeout is None:
             command = [sys.executable, str(self.root / SCRIPT.name)]
@@ -257,6 +262,22 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.finish(process)
         self.assertNotIn("No active sessions", self.output())
         self.assertTrue((self.root / "runtime_completed").exists())
+
+    def test_default_run_root_is_invocation_cwd_and_is_forwarded_to_source_cwd_children(self):
+        config = self.outside / "run_config.yaml"
+        config.write_text("environment: terminal_bench\n")
+        process = self.start(use_cwd_root=True)
+        self.finish(process)
+        self.assertTrue((self.outside / "run").is_dir())
+        self.assertTrue((self.outside / "run_tb").is_dir())
+        self.assertFalse((self.root / "run").exists())
+        self.assertFalse((self.root / "run_tb").exists())
+        runtime = next(event for event in self.events() if event["event"] == "runtime_started")
+        controller = next(event for event in self.events() if event["event"] == "controller_started")
+        self.assertEqual(runtime["cwd"], str(self.root))
+        self.assertEqual(controller["cwd"], str(self.root))
+        self.assertEqual(runtime["args"], ["--run-root", str(self.outside)])
+        self.assertEqual(controller["args"], ["--run-root", str(self.outside), "--run-config", str(config)])
 
     def test_external_relative_run_root_uses_its_default_config_and_source_scripts(self):
         experiment = self.outside / "experiment with spaces"
@@ -416,7 +437,7 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.assertEqual(self.events(), [])
 
     def test_science_selection_forwards_setup_and_full_run_config(self):
-        source = SCRIPT.parent / "run_config_terminal_bench_science_0.1.yaml"
+        source = SCRIPT.parent / "run_config_examples/run_config_terminal_bench_science_0.1.yaml"
         config = self.outside / "science config.yaml"
         shutil.copyfile(source, config)
         games = yaml.safe_load(config.read_text())["games"]

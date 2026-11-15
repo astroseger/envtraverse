@@ -14,7 +14,7 @@ import time
 
 import yaml
 
-import run_funs as rf
+from src.controller import run_funs as rf
 
 
 ROOT = rf.ROOT
@@ -124,7 +124,8 @@ def run_experiment(
     source_root: Path, run_config: Path, *, benchmarks: str | None = None,
     paths: rf.RunPaths | None = None,
 ) -> int:
-    paths = paths or rf.RunPaths(source_root)
+    paths = paths or rf.RunPaths()
+    run_config = run_config.expanduser().resolve()
     for directory in (paths.run_dir, paths.run_tb_dir):
         if os.path.lexists(directory):
             raise RuntimeError(f"Run folder already exists: {directory}")

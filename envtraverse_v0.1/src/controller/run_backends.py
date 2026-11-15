@@ -7,14 +7,15 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 from typing import TYPE_CHECKING
 
-import run_funs as rf
-from account_locks import account_lock, ensure_account_not_in_use
+from src.controller import run_funs as rf
+from src.account_locks import account_lock, ensure_account_not_in_use
 from opencode_chatgpt_accounts import account_tools
-from opencode_usage import collect_account_usage
+from src.controller.opencode_usage import collect_account_usage
 
 if TYPE_CHECKING:
     from run_controller import RunConfig
@@ -39,7 +40,8 @@ If you are sure. Type continue
 """
 
 
-def pending_usage_path(account: str, *, paths: rf.RunPaths = rf.RunPaths()) -> Path:
+def pending_usage_path(account: str, *, paths: rf.RunPaths | None = None) -> Path:
+    paths = paths or rf.RunPaths()
     return account_tools.pending_usage_path(paths.accounts_dir / account)
 
 
@@ -51,14 +53,18 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def verify_no_pending_usage(accounts: list[str], *, paths: rf.RunPaths = rf.RunPaths()) -> None:
+def verify_no_pending_usage(accounts: list[str], *, paths: rf.RunPaths | None = None) -> None:
+    paths = paths or rf.RunPaths()
     for account in accounts:
         marker = pending_usage_path(account, paths=paths)
         if os.path.lexists(marker):
+            recovery_command = shlex.join([
+                "python3", str(rf.ROOT / "src/controller/opencode_usage.py"), str(paths.accounts_dir / account),
+            ])
             raise RuntimeError(
                 f"OpenCode account {account} has unsaved game usage: {marker}. "
                 f"Preserve this account and stop its old container, then recover usage with "
-                f"python3 {rf.ROOT / 'opencode_usage.py'} {paths.accounts_dir / account} "
+                f"{recovery_command} "
                 "before another check or cleanup."
             )
 
@@ -95,10 +101,11 @@ def verify_opencode_accounts(config: RunConfig, *, agent_image: str) -> None:
 
 
 def clean_opencode_account(
-    account: str, *, account_lock_fd: int, agent_image: str, paths: rf.RunPaths = rf.RunPaths(),
+    account: str, *, account_lock_fd: int, agent_image: str, paths: rf.RunPaths | None = None,
     on_cleaned: Callable[[], None] | None = None,
 ) -> None:
     """Reset history before a fresh game while retaining the controller's lock."""
+    paths = paths or rf.RunPaths()
     verify_no_pending_usage([account], paths=paths)
     if not CLEAN_OPENCODE_ACCOUNT_SCRIPT.is_file():
         raise RuntimeError(f"OpenCode account clean script does not exist: {CLEAN_OPENCODE_ACCOUNT_SCRIPT}")
@@ -204,7 +211,8 @@ def verify_codex_api_key() -> None:
 
 
 def clean_codex_account(account: str, *, account_lock_fd: int, fast_service_tier: bool = False,
-                        paths: rf.RunPaths = rf.RunPaths()) -> None:
+                        paths: rf.RunPaths | None = None) -> None:
+    paths = paths or rf.RunPaths()
     account_path = paths.accounts_dir / account
     rf.log_info("cleaning Codex account %s before a fresh game", account)
     run_reserved_command(["bash", str(CLEAN_CODEX_ACCOUNT_SCRIPT), str(account_path),

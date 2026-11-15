@@ -104,7 +104,7 @@ class OpenCodeUsageIntegrationTest(unittest.TestCase):
     def test_collector_saves_all_session_counters_without_transcript_messages(self):
         earlier, root, child = self.seed_sessions()
         with patch.object(sys, "path", [str(ROOT), *sys.path]):
-            usage = load_module("opencode_usage_integration", ROOT / "opencode_usage.py")
+            usage = load_module("opencode_usage_integration", ROOT / "src/controller/opencode_usage.py")
         output = self.directory / "result" / "opencode_usage.json"
         with usage.account_tools.account_lock(self.account), patch.object(usage, "PAGE_SIZE", 2):
             snapshot = usage.collect_account_usage(

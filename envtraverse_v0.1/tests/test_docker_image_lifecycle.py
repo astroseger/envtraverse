@@ -14,7 +14,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import run_funs as rf
+from src.controller import run_funs as rf
 
 
 @unittest.skipUnless(os.environ.get("TEST_DOCKER_IMAGES") == "1", "opt-in: builds Docker images")

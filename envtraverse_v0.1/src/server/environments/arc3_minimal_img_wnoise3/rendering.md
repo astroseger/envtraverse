@@ -4,7 +4,7 @@ This reference describes the rendering used by
 [arc3_minimal_img_wnoise3](README.md) and
 [arc3_minimal_img_wnoise3_whighlight2](../arc3_minimal_img_wnoise3_whighlight2/README.md).
 For accepted settings, see the [parameter tables](README.md#parameters). The
-supplied [configuration](../../../../run_config_arc3_minimal_img_wnoise3.yaml)
+supplied [configuration](../../../../run_config_examples/run_config_arc3_minimal_img_wnoise3.yaml)
 contains the values used in the examples below.
 
 ## Color noise and sampling

@@ -13,7 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from account_locks import account_lock
+from src.account_locks import account_lock
 
 SCRIPTS = ROOT / "codex_accounts"
 DOCKER_STUB = r'''#!/usr/bin/env python3

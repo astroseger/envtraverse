@@ -7,11 +7,15 @@ pins `@opencode/cli@2.3.0` and retains the original scientific Python packages.
 
 ## Run
 
-From the repository root, edit `run_config_opencode.yaml`, then run:
+From the repository root, use the supplied
+[OpenCode example](../../../run_config_examples/run_config_opencode.yaml):
 
 ```bash
-python3 run_controller.py --run-config run_config_opencode.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_opencode.yaml
 ```
+
+For local settings, copy that example to `run_config.yaml`, edit it, and run
+`python3 run_controller.py`. The checkout's local copy is ignored by Git.
 
 The supplied configuration runs the example `counter` environment using
 `oc_rod1_1` and `openai/gpt-6.1-terra` with the `max` variant. The controller builds
@@ -20,19 +24,20 @@ schedules games across the configured accounts. Docker must be available to the
 current user. Environment-specific host variables and mounts work as in the
 original controller.
 
-Outputs go under `run/`. That directory must not already exist. To use a fresh
-output location with the original account directory:
+The run root defaults to the caller's working directory at startup. Outputs go
+under its `run/`, which must not already exist. To use a fresh output location
+with the original account directory:
 
 ```bash
 python3 run_controller.py \
   --run-root /tmp/opencode-experiment \
-  --run-config "$PWD/run_config_opencode.yaml" \
+  --run-config "$PWD/run_config_examples/run_config_opencode.yaml" \
   --accounts-dir "$PWD/opencode_chatgpt_accounts"
 ```
 
-Accounts default to `opencode_chatgpt_accounts/` under `--run-root` when the
+Accounts default to `opencode_chatgpt_accounts/` under the selected run root when the
 configuration selects `backend: opencode_chatgpt_accounts`. The controller
-defaults to `run_config.yaml`; pass `--run-config run_config_opencode.yaml` to
+defaults to `run_config.yaml`; pass `--run-config run_config_examples/run_config_opencode.yaml` to
 select the supplied OpenCode configuration. Configure account names with
 `accounts: [...]`; the older `opencode_accounts` key is rejected. Each account runs one game
 at a time; `max_parallel_games` is only available for the API-key backend.
@@ -71,9 +76,11 @@ database counters remain available.
 A sibling `.<account>.opencode.pending-usage.json` marker tracks an outstanding
 collection. Account commands and controller preflight refuse accounts with this
 marker, including after an interrupted or crashed controller. To recover from
-the repository root, run `python3 opencode_usage.py ACCOUNT`, optionally passing
+the repository root, run `python3 src/controller/opencode_usage.py ACCOUNT`, optionally passing
 `--image SAME_VERSION_IMAGE`. Recovery verifies that the previous game container
 has stopped, saves the usage snapshot, and clears the marker only after success.
+From another directory, use the script's absolute path; `ACCOUNT` resolves
+against your current working directory.
 
 The game workspace stores its session ID atomically in `.opencode_session_id`.
 Recovery starts a fresh session when the environment is still at step zero,

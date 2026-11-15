@@ -2,5 +2,8 @@
 /run_tb/
 /run
 
+# Local working configuration; tracked templates live in run_config_examples/.
+/run_config.yaml
+
 # Account reservation files persist after the OS lock is released.
 /codex_accounts/.*.codex.lock

@@ -12,6 +12,10 @@ import subprocess
 import sys
 import tempfile
 
+if __package__ in (None, ""):
+    # Support the recovery command by absolute path from any experiment root.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from opencode_chatgpt_accounts import account_tools
 
 

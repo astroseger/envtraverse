@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import ExitStack, chdir, contextmanager, nullcontext
 from dataclasses import replace
 import io
 import json
@@ -21,16 +21,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import run_controller as controller
-import run_backends as rb
-from account_locks import account_lock
-import run_funs as rf
-from agent_api import AgentMount
+from src.controller import run_backends as rb
+from src.account_locks import account_lock
+from src.controller import run_funs as rf
+from src.agent_api import AgentMount
 
 BACKENDS = (rb.CODEX_CHATGPT, rb.CODEX_API_KEY)
 IMAGES = rf.RunImages.create()
 
 
-def make_config(backend_name, *, variables=(), paths=rf.RunPaths()):
+def make_config(backend_name, *, variables=(), paths=None):
+    paths = rf.RunPaths() if paths is None else paths
     settings = dict(
         games=["counter"], paths=replace(paths, backend=backend_name), backend=backend_name,
         environment=rf.EnvironmentConfig("example", {"target": 2}, list(variables)),
@@ -52,7 +53,8 @@ def make_backend(config):
     return backend
 
 
-def example_preparation(alias="alias", model="test-model", effort="medium", *, paths=rf.RunPaths()):
+def example_preparation(alias="alias", model="test-model", effort="medium", *, paths=None):
+    paths = rf.RunPaths() if paths is None else paths
     game_dir = paths.run_dir / alias
     return rf.LaunchPreparation(
         command=["python3", "agent_runner.py", alias, "--model", model, "--reasoning-effort", effort],
@@ -62,7 +64,8 @@ def example_preparation(alias="alias", model="test-model", effort="medium", *, p
     )
 
 
-def prepare_game(alias, environment, *, paths=rf.RunPaths()):
+def prepare_game(alias, environment, *, paths=None):
+    paths = rf.RunPaths() if paths is None else paths
     paths.run_dir.mkdir(exist_ok=True)
     game_dir = rf.prepare_game_directory(alias, paths=paths)
     rf.prepare_agent_run(
@@ -78,13 +81,15 @@ def environment_arguments(command):
 
 
 class LauncherTest(unittest.TestCase):
-    def test_both_controllers_read_external_default_config_and_keep_outputs_in_run_root(self) -> None:
-        for backend_name in BACKENDS:
-            with self.subTest(backend=backend_name), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+    def test_backend_runs_keep_outputs_in_explicit_or_invocation_root(self) -> None:
+        for backend_name, mode in ((backend, mode) for backend in BACKENDS
+                                   for mode in ("explicit_root", "cwd", "external_config")):
+            with self.subTest(backend=backend_name, mode=mode), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 paths = rf.RunPaths(Path(directory) / "experiment with spaces", backend=backend_name)
                 (paths.accounts_dir / "codex01").mkdir(parents=True)
                 (paths.root / "resources").mkdir()
-                paths.run_config.write_text(
+                selected_config = (Path(directory) / "selected.yaml") if mode == "external_config" else paths.run_config
+                selected_config.write_text(
                     f"backend: {backend_name}\n"
                     "agent: agent_v1\nenvironment: example\ngames: [counter]\naccounts: [codex01]\n"
                     "agent_parameters:\n  model: test-model\n  reasoning_effort: medium\n"
@@ -114,7 +119,12 @@ class LauncherTest(unittest.TestCase):
                     return 0
 
                 stack.enter_context(patch.object(controller, "run_scheduler", side_effect=schedule))
-                result = controller.main(["--run-root", str(paths.root)])
+                if mode == "explicit_root":
+                    result = controller.main(["--run-root", str(paths.root)])
+                else:
+                    with chdir(paths.root):
+                        arguments = ["--run-config", str(selected_config)] if mode == "external_config" else []
+                        result = controller.main(arguments)
                 for handler in logger.handlers:
                     stack.callback(handler.close)
                 self.assertEqual(result, 0)

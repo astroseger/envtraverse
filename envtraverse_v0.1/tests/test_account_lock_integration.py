@@ -11,8 +11,8 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from account_locks import AccountLockError, account_lock, ensure_account_not_in_use
-import run_funs as rf
+from src.account_locks import AccountLockError, account_lock, ensure_account_not_in_use
+from src.controller import run_funs as rf
 
 
 @unittest.skipUnless(os.environ.get("ACCOUNT_LOCK_DOCKER_TESTS") == "1", "optional offline Docker test")

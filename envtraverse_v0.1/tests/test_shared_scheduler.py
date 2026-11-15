@@ -10,7 +10,7 @@ from unittest.mock import Mock, call, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import run_funs as rf
+from src.controller import run_funs as rf
 
 
 class SharedSchedulerTest(unittest.TestCase):
@@ -427,10 +427,7 @@ class ContainerStopTest(unittest.TestCase):
 
 
 class SharedPathsTest(unittest.TestCase):
-    def test_backend_paths_and_opencode_import_share_one_module(self):
-        import run_funs_oc
-
-        self.assertIs(run_funs_oc, rf)
+    def test_backend_paths_and_explicit_account_root(self):
         root = Path("/tmp/shared-paths-test")
         self.assertEqual(rf.RunPaths(root).accounts_dir, root / "codex_accounts")
         opencode = rf.RunPaths(root, backend="opencode_chatgpt_accounts", config_name="run_config_opencode.yaml")

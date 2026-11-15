@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -10,7 +12,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import opencode_usage as usage
+from src.controller import opencode_usage as usage
 
 
 def tokens(value=1):
@@ -28,6 +30,20 @@ def session(identifier, value=1, parent=None):
 
 def page(sessions, cursor=None):
     return json.dumps({"data": sessions, "cursor": {"next": cursor, "previous": None}}).encode()
+
+
+class OpenCodeUsageCLITest(unittest.TestCase):
+    def test_relocated_usage_cli_help_works_from_outside_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "src/controller/opencode_usage.py"), "--help"],
+                cwd=directory, env=environment, capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Recover pending per-game OpenCode usage", result.stdout)
+            self.assertEqual(list(directory.iterdir()), [])
 
 
 class OpenCodeUsageTest(unittest.TestCase):

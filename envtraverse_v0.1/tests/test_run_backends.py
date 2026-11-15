@@ -16,10 +16,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import account_locks
-import run_backends as rb
+from src import account_locks
+from src.controller import run_backends as rb
 import run_controller as controller
-import run_funs as rf
+from src.controller import run_funs as rf
 
 
 class RunBackendTest(unittest.TestCase):

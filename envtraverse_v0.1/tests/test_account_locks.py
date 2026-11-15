@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import account_locks as locks
+from src import account_locks as locks
 
 
 def result(stdout="", returncode=0):

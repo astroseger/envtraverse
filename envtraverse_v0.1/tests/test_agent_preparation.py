@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import run_controller as controller
-import run_backends as rb
-import run_funs as rf
+from src.controller import run_backends as rb
+from src.controller import run_funs as rf
 import src.agents
 from src.agents.agent_v1.prepare_run import prepare_run
 
@@ -106,7 +106,7 @@ class AgentPreparationTest(unittest.TestCase):
             package.mkdir(parents=True)
             (package / "Dockerfile").write_text("FROM scratch\nWORKDIR /task\n")
             (package / "prepare_run.py").write_text('''\
-from agent_api import AgentMount, LaunchPreparation
+from src.agent_api import AgentMount, LaunchPreparation
 
 def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_files_dir=None):
     assert set(parsed_run_config) == {"model", "custom_value"}

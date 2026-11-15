@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import chdir
 import datetime
 import os
 from pathlib import Path
@@ -14,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import run_controller as accounts_controller
-import run_backends as rb
-import run_funs as rf
+from src.controller import run_backends as rb
+from src.controller import run_funs as rf
 
 CONTROLLERS = (accounts_controller,)
 
@@ -36,16 +37,46 @@ class RunConfigurationTest(unittest.TestCase):
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
         return config
 
-    def test_default_run_paths_use_the_source_directory(self) -> None:
-        for controller in CONTROLLERS:
-            args = controller.parse_args([])
-            paths = rf.RunPaths(args.run_root)
-            self.assertEqual(paths.root, ROOT)
-            self.assertEqual(paths.resolve_config(args.run_config), ROOT / "run_config.yaml")
-            self.assertEqual(paths.accounts_dir, ROOT / "codex_accounts")
-            self.assertEqual(paths.run_dir, ROOT / "run")
-            self.assertEqual(paths.run_tb_dir, ROOT / "run_tb")
-            self.assertEqual(paths.runner_log, ROOT / "run/runner.log")
+    def test_default_run_paths_use_current_directory_after_modules_are_imported(self) -> None:
+        before = rf.RunPaths()
+        for location in (self.directory, self.directory / "another experiment"):
+            location.mkdir(exist_ok=True)
+            with self.subTest(location=location), chdir(location):
+                args = accounts_controller.parse_args([])
+                paths = rf.RunPaths(args.run_root)
+                self.assertEqual(paths.root, location)
+                self.assertEqual(rf.RunPaths().root, location)
+                self.assertEqual(paths.resolve_config(args.run_config), location / "run_config.yaml")
+                self.assertEqual(paths.accounts_dir, location / "codex_accounts")
+                self.assertEqual(paths.run_dir, location / "run")
+                self.assertEqual(paths.run_tb_dir, location / "run_tb")
+                self.assertEqual(paths.runner_log, location / "run/runner.log")
+                config = accounts_controller.RunConfig(
+                    games=[], environment=rf.EnvironmentConfig("example", {}, []),
+                    agent="agent_v1", parsed_run_config={"agent_parameters": {}},
+                )
+                self.assertEqual(config.paths.root, location)
+                self.assertEqual(rf.ROOT, ROOT)
+                self.assertEqual(rf.AGENTS_DIR, ROOT / "src/agents")
+        self.assertEqual(before.root, Path.cwd())
+
+    def test_explicit_config_elsewhere_keeps_runtime_default_root_and_relative_mounts(self) -> None:
+        settings = self.write_config(server_mounts=[{"source": "resources", "target": "/resources"}])
+        (self.directory / "resources").mkdir()
+        selected = self.directory / "config files" / "selected.yaml"
+        selected.parent.mkdir()
+        selected.write_text(yaml.safe_dump(settings), encoding="utf-8")
+        with chdir(self.directory):
+            config = accounts_controller.parse_run_config(selected)
+            self.assertEqual(config.paths.root, self.directory)
+            self.assertEqual(config.paths.accounts_dir, self.directory / "codex_accounts")
+            self.assertEqual(config.environment.mounts, (
+                rf.ServerMount(self.directory / "resources", "/resources"),
+            ))
+            # The shared helper's omitted paths argument must also be resolved
+            # at call time, not when this test imported the module.
+            environment = rf.parse_environment_config(settings, selected)
+            self.assertEqual(environment.mounts, config.environment.mounts)
 
     def test_relative_root_and_explicit_config_use_caller_cwd_independently(self) -> None:
         with patch("os.getcwd", return_value=str(self.directory)):
@@ -89,7 +120,7 @@ class RunConfigurationTest(unittest.TestCase):
 
     def test_supplied_config_runs_one_noncompetition_arc3_game(self) -> None:
         for controller in CONTROLLERS:
-            config = controller.parse_run_config(ROOT / "run_config_arc3.yaml", paths=self.paths)
+            config = controller.parse_run_config(ROOT / "run_config_examples/run_config_arc3.yaml", paths=self.paths)
             self.assertEqual(config.games, ["ls20"])
             self.assertEqual(
                 config.environment,
@@ -189,7 +220,7 @@ class RunConfigurationTest(unittest.TestCase):
 
     def test_supplied_runner_example_uses_defaults(self) -> None:
         for controller in CONTROLLERS:
-            config = controller.parse_run_config(ROOT / "run_config.yaml", paths=self.paths)
+            config = controller.parse_run_config(ROOT / "run_config_examples/run_config.yaml", paths=self.paths)
             self.assertNotIn("runner", config.parsed_run_config)
             self.assertNotIn("recovery_delay_seconds", config.agent_parameters)
             self.assertNotIn("max_recovery_attempts", config.agent_parameters)

@@ -9,8 +9,8 @@ import subprocess
 import sys
 from typing import cast
 
-import run_backends as backends
-import run_funs as rf
+from src.controller import run_backends as backends
+from src.controller import run_funs as rf
 
 
 LEGACY_AGENT_PARAMETERS = (
@@ -35,7 +35,7 @@ class RunConfig:
     codex_account_fast_service_tier: bool = False
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
-    paths: rf.RunPaths = rf.RunPaths()
+    paths: rf.RunPaths = field(default_factory=rf.RunPaths)
 
     @property
     def agent_parameters(self) -> dict[str, object]:
@@ -85,7 +85,8 @@ def parse_accounts(config: dict[str, object], backend: str, path: Path) -> list[
     return rf.parse_string_list(config, "accounts", path)
 
 
-def parse_run_config(path: Path, *, paths: rf.RunPaths = rf.RunPaths()) -> RunConfig:
+def parse_run_config(path: Path, *, paths: rf.RunPaths | None = None) -> RunConfig:
+    paths = paths or rf.RunPaths()
     loaded = rf.load_run_config(path)
     backend = select_backend(loaded)
     loaded = normalize_run_config(loaded, backend=backend, path=path)

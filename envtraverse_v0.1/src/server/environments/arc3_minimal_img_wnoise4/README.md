@@ -13,7 +13,7 @@ python3 -m pip install -r src/server/environments/arc3_minimal_img_wnoise4/requi
 ~~~
 
 Select `environment: arc3_minimal_img_wnoise4` and start with
-[run_config_arc3_minimal_img_wnoise4.yaml](../../../../run_config_arc3_minimal_img_wnoise4.yaml).
+[run_config_arc3_minimal_img_wnoise4.yaml](../../../../run_config_examples/run_config_arc3_minimal_img_wnoise4.yaml).
 It supplies every required image setting and forwards `ARC_API_KEY` to the
 server. Export the key on the host. Normal mode can still need a key and
 network access to download games.

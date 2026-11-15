@@ -20,6 +20,8 @@ class ScriptDispatchTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="tb_scripts_")
         self.root = Path(self.temp.name) / "package with spaces"
         self.root.mkdir()
+        self.caller = Path(self.temp.name) / "experiment with spaces"
+        self.caller.mkdir()
         original = Path(__file__).resolve().parents[1]
         self.host = self.root / "src/server/environments/terminal_bench/host_runtime"
         self.host.mkdir(parents=True)
@@ -70,7 +72,7 @@ else:
     def run_script(self, script, *args, success=True, extra_env=None):
         env = self.env | (extra_env or {})
         proc = subprocess.run(["bash", str(self.host / script), *args],
-                              cwd="/tmp", env=env, capture_output=True, text=True, timeout=15)
+                              cwd=self.caller, env=env, capture_output=True, text=True, timeout=15)
         if success:
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         else:
@@ -167,7 +169,7 @@ else:
         self.assertEqual(self.calls("terminal_bench.datasets"), [["-m", "terminal_bench.datasets", "list",
             "--tbscience-root", root, "--benchmark", "terminal-bench-science-0.1"]])
 
-    def test_runtime_uses_shared_socket_and_project_results_from_any_cwd(self):
+    def test_runtime_defaults_to_caller_cwd_and_uses_source_datasets(self):
         for suffix in ("2-1", "3-0", "4-0", "science-0-1"):
             self.checkout(suffix)
         self.run_script("run.sh")
@@ -175,15 +177,17 @@ else:
         for flag in ("--tb21-root", "--tb3-root", "--tb4-root", "--tbscience-root"):
             self.assertIn(flag, call)
         self.assertEqual(call[call.index("--socket") + 1], "socket/runtime.sock")
-        self.assertEqual(call[call.index("--output") + 1], str(self.root / "run_tb/results"))
-        self.assertEqual(call[call.index("--log-file") + 1], str(self.root / "run_tb/runtime.log"))
-        self.assertEqual(call[call.index("--runs-dir") + 1], str(self.root / "run"))
-        self.assertTrue((self.root / "run_tb/socket").is_dir())
+        self.assertEqual(call[call.index("--output") + 1], str(self.caller / "run_tb/results"))
+        self.assertEqual(call[call.index("--log-file") + 1], str(self.caller / "run_tb/runtime.log"))
+        self.assertEqual(call[call.index("--runs-dir") + 1], str(self.caller / "run"))
+        self.assertTrue((self.caller / "run_tb/socket").is_dir())
+        self.assertFalse((self.caller / "run").exists())
+        self.assertFalse((self.root / "run_tb").exists())
         self.assertFalse((self.root / "run").exists())
 
     def test_existing_run_or_run_tb_is_rejected_without_launch(self):
         for name in ("run", "run_tb"):
-            path = self.root / name
+            path = self.caller / name
             path.mkdir()
             self.run_script("run.sh", success=False)
             path.rmdir()
@@ -195,7 +199,7 @@ else:
         for name in ("run", "run_tb"):
             (self.root / name).mkdir()
             (self.root / name / "keep.txt").write_text("existing run")
-        self.run_script("run.sh", "--run-root", os.path.relpath(experiment, "/tmp"), "--verbose")
+        self.run_script("run.sh", "--run-root", os.path.relpath(experiment, self.caller), "--verbose")
         call = self.calls("terminal_bench.runtime")[0]
         for flag, expected in (("--output", experiment / "run_tb/results"),
                                ("--log-file", experiment / "run_tb/runtime.log"),
@@ -227,7 +231,7 @@ else:
         self.assertEqual(self.calls(), [])
 
     def test_broken_symlink_run_is_also_rejected(self):
-        (self.root / "run").symlink_to(self.root / "missing")
+        (self.caller / "run").symlink_to(self.caller / "missing")
         self.run_script("run.sh", success=False)
         self.assertEqual(self.calls(), [])
 
