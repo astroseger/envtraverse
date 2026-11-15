@@ -78,6 +78,15 @@ the configuration's `backend`: `codex_chatgpt_accounts`,
 `opencode_chatgpt_accounts`, or `codex_openai_api_key`. The independent `agent`
 field selects the agent implementation.
 
+Start with an example from [run_config_examples/](run_config_examples/).
+Copy it to `run_config.yaml` and edit it for your experiment, or select a file
+with `--run-config path/to/config.yaml`.
+
+By default, the controller uses your current directory as the experiment
+directory: it reads `run_config.yaml` there and saves results under `run/`.
+Use `--run-root /path/to/experiment` to choose a different directory.
+Selecting a file with `--run-config` does not change the experiment directory.
+
 Runtime agent settings belong in `agent_parameters`, alongside the existing
 `environment_parameters` mapping. The loader still accepts legacy root agent
 settings and `codex_accounts` for the Codex ChatGPT backend.
