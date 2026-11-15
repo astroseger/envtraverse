@@ -30,8 +30,16 @@ python3 -m pip install PyYAML
 Follow the device-authentication instructions. The scripts build their account
 tools image on first use; see [account tools](../../codex_accounts/README.md).
 
-The supplied [run_config.yaml](../../run_config.yaml) selects the baseline agent
-and the counter example. A complete configuration with an explicit target is:
+The supplied [run_config.yaml](../../run_config_examples/run_config.yaml) selects the baseline agent
+and the counter example. Tracked presets live in `run_config_examples/`; make a
+local copy for your experiment:
+
+```bash
+cp run_config_examples/run_config.yaml run_config.yaml
+```
+
+The checkout's local `run_config.yaml` is ignored by Git. A complete configuration
+with an explicit target is:
 
 ```yaml
 backend: codex_chatgpt_accounts
@@ -53,7 +61,8 @@ you want to study; both are required by the bundled agents. Start the run:
 python3 run_controller.py --run-config run_config.yaml
 ```
 
-Results go to `<run-root>/run/`. The run root defaults to the framework directory.
+Results go to `<run-root>/run/`. The run root defaults to the caller's working
+directory at startup, which is the checkout for the commands above.
 Rename or archive an existing `run/` in the selected root before another
 experiment. Passing a different configuration path alone does not change this
 output location. For long experiments, use `tmux` or `screen`.
@@ -77,7 +86,7 @@ For OpenCode, prepare an account with the
 [OpenCode account tools](../../opencode_chatgpt_accounts/README.md), then run:
 
 ```bash
-python3 run_controller.py --run-config run_config_opencode.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_opencode.yaml
 ```
 
 The supplied config selects `opencode_agent_v1_08_wstop3`. Its account is mounted
@@ -132,17 +141,27 @@ python3 run_controller.py --run-root /path/to/experiment
 | `run/` | Workspaces, observations, logs, and `docker_images.json` |
 | `run_tb/` | Terminal-Bench runtime socket, logs, and private results |
 
-Without `--run-root`, these paths remain beside the controller scripts. Relative
-`--run-root` and explicit `--run-config` arguments resolve against the caller's
-working directory. Relative `server_mounts[].source` paths inside the YAML resolve
-against the run root, even when the configuration file is elsewhere. Absolute
-mount sources retain their specified locations.
+Without `--run-root`, these paths are under the caller's working directory at
+startup. You can therefore run from an experiment directory using the controller's
+absolute path:
+
+```bash
+cd /path/to/experiment
+python3 /path/to/envtraverse_v0.1/run_controller.py
+```
+
+Relative `--run-root` and explicit `--run-config` arguments resolve against the
+caller's working directory. An explicit configuration path never changes the run
+root. Relative `server_mounts[].source` paths inside the YAML resolve against the
+run root, even when the configuration file is elsewhere. Absolute mount sources
+retain their specified locations.
 
 `--accounts-dir /path/to/accounts` overrides the account parent directory for
 either ChatGPT backend without moving or copying credentials.
 
 Agent and environment source, Docker build files, account helper scripts, and
 Terminal-Bench datasets and virtual environment stay in the source checkout.
+The root controller scripts load their shared helpers from `src/controller/`.
 For example, prepare an external account with:
 
 ```bash
@@ -210,11 +229,11 @@ server. Both can be omitted when unused.
 ### ARC-AGI-3
 
 Edit the agent, game IDs, model, and effort in
-[run_config_arc3.yaml](../../run_config_arc3.yaml), then run:
+[run_config_arc3.yaml](../../run_config_examples/run_config_arc3.yaml), then run:
 
 ```bash
 export ARC_API_KEY='your-arc-api-key'
-python3 run_controller.py --run-config run_config_arc3.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_arc3.yaml
 ```
 
 The supplied configuration forwards `ARC_API_KEY` to the server and uses
@@ -239,7 +258,7 @@ the `environment` field:
 | [arc3_minimal_img_wnoise4](../../src/server/environments/arc3_minimal_img_wnoise4/README.md) | Noisy, deformed images with configurable rotation after each action, plus metadata |
 
 For the first four formats, make a copy of
-[run_config_arc3.yaml](../../run_config_arc3.yaml) and change `environment` to
+[run_config_arc3.yaml](../../run_config_examples/run_config_arc3.yaml) and change `environment` to
 the selected package name. Keep the game IDs, agent settings, and
 `environment_variables: [ARC_API_KEY]` entry. Use the Baseline or Stop-and-report
 agent with raw JSON; Controlled_RESET requires `metadata.txt`, which the raw
@@ -248,18 +267,18 @@ adapter does not emit.
 The image-noise variants require explicit image and noise settings, including
 fields in disabled groups. Start with the supplied configurations:
 
-- [run_config_arc3_minimal_img_wnoise3.yaml](../../run_config_arc3_minimal_img_wnoise3.yaml)
+- [run_config_arc3_minimal_img_wnoise3.yaml](../../run_config_examples/run_config_arc3_minimal_img_wnoise3.yaml)
   selects images with noise and deformation.
-- [run_config_arc3_minimal_img_wnoise3_whighlight2.yaml](../../run_config_arc3_minimal_img_wnoise3_whighlight2.yaml)
+- [run_config_arc3_minimal_img_wnoise3_whighlight2.yaml](../../run_config_examples/run_config_arc3_minimal_img_wnoise3_whighlight2.yaml)
   adds the `highlight_pixel` action and cursor-size setting.
-- [run_config_arc3_minimal_img_wnoise4.yaml](../../run_config_arc3_minimal_img_wnoise4.yaml)
+- [run_config_arc3_minimal_img_wnoise4.yaml](../../run_config_examples/run_config_arc3_minimal_img_wnoise4.yaml)
   adds a rotation schedule before homography and deformation.
 
 For example:
 
 ```bash
 export ARC_API_KEY='your-arc-api-key'
-python3 run_controller.py --run-config run_config_arc3_minimal_img_wnoise3.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_arc3_minimal_img_wnoise3.yaml
 ```
 
 Use another listed configuration with the same command to select its variant.
@@ -271,10 +290,10 @@ the game-solving budget.
 
 ### AGI Maze: individual labyrinths
 
-Edit [run_config_agimaze.yaml](../../run_config_agimaze.yaml) and run:
+Edit [run_config_agimaze.yaml](../../run_config_examples/run_config_agimaze.yaml) and run:
 
 ```bash
-python3 run_controller.py --run-config run_config_agimaze.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_agimaze.yaml
 ```
 
 Task IDs are paths relative to the bundled
@@ -311,24 +330,24 @@ Terminal-Bench needs a host runtime in addition to the agent and server containe
 After preparing the accounts and configuration, run:
 
 ```bash
-python3 run_controller_tb.py --run-config run_config_terminal_bench.yaml
+python3 run_controller_tb.py --run-config run_config_examples/run_config_terminal_bench.yaml
 ```
 
 The wrapper sets up the host runtime, starts the subscription controller, and
 waits for grading and cleanup. The supplied
-[small configuration](../../run_config_terminal_bench.yaml) has two tasks;
-[run_config_terminal_bench_2.1.yaml](../../run_config_terminal_bench_2.1.yaml)
+[small configuration](../../run_config_examples/run_config_terminal_bench.yaml) has two tasks;
+[run_config_terminal_bench_2.1.yaml](../../run_config_examples/run_config_terminal_bench_2.1.yaml)
 contains the full supplied task list.
 
-To run all 70 Science 0.1 tasks from [run_config_terminal_bench_science_0.1.yaml](../../run_config_terminal_bench_science_0.1.yaml):
+To run all 70 Science 0.1 tasks from [run_config_terminal_bench_science_0.1.yaml](../../run_config_examples/run_config_terminal_bench_science_0.1.yaml):
 
 ```bash
-python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
+python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_examples/run_config_terminal_bench_science_0.1.yaml
 ```
 
 The Science configuration uses `agent_v1_08_wstop3` with an HTTP read timeout of
 36300 seconds and a supervisor inactivity timeout of 39600 seconds. All four
-bundled agents accept these top-level settings; their defaults are 3900 and 7200
+bundled agents accept these settings in `agent_parameters`; their defaults are 3900 and 7200
 seconds. See the [agent settings](../../src/agents/README.md) for details.
 
 `--benchmarks` accepts `2.1`, `3.0`, `4.0`, `science-0.1`, a comma-separated
@@ -370,11 +389,11 @@ API-key runs may be **substantially** more expensive than runs backed by
 authenticated Codex accounts.
 
 Set `backend: codex_openai_api_key` in the configuration. The
-[API-key example](../../run_config_api_key.yaml) runs the counter task:
+[API-key example](../../run_config_examples/run_config_api_key.yaml) runs the counter task:
 
 ```bash
 export OPENAI_API_KEY='your-openai-api-key'
-python3 run_controller.py --run-config run_config_api_key.yaml
+python3 run_controller.py --run-config run_config_examples/run_config_api_key.yaml
 ```
 
 The runner checks Codex with the API key and asks for `continue` before launching.

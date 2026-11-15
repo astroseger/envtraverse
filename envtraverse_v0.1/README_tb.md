@@ -18,12 +18,18 @@ run root before starting a new experiment.
 
 ## Run with subscription accounts
 
-Edit the agent, tasks, accounts, model, and effort in
-[run_config_terminal_bench.yaml](run_config_terminal_bench.yaml), then run:
+Start with [run_config_terminal_bench.yaml](run_config_examples/run_config_terminal_bench.yaml).
+Copy it to a local `run_config.yaml` and edit the agent, tasks, accounts, model,
+and effort before running:
 
 ```bash
-python3 run_controller_tb.py --run-config run_config_terminal_bench.yaml
+cp run_config_examples/run_config_terminal_bench.yaml run_config.yaml
+# Edit run_config.yaml for your experiment.
+python3 run_controller_tb.py
 ```
+
+The checkout's local `run_config.yaml` is ignored by Git. To use a supplied
+preset directly, pass its path under `run_config_examples/` with `--run-config`.
 
 The wrapper installs the host dependencies and selected benchmark data (2.1 by
 default), starts the runtime, runs `run_controller.py`, and waits for grading and
@@ -51,7 +57,8 @@ accounts: [codex01]
 ```
 
 Keep the socket mount; its source is relative to the selected run root, which
-defaults to `envtraverse_v0.1/`, even if the configuration lives elsewhere.
+defaults to the caller's working directory at startup, even if the configuration
+lives elsewhere.
 The runtime creates the directory before the
 controller starts. The fast service tier is optional and defaults to `false`
 when omitted.
@@ -73,22 +80,24 @@ This reads `/path/to/experiment/run_config.yaml`, uses account data from
 `/path/to/experiment/codex_accounts/`, and creates `run/` and `run_tb/` there.
 Source code, account helper scripts, the Harbor virtual environment, and downloaded
 benchmarks stay in the checkout. An explicit relative `--run-config` path is
-resolved against the caller's working directory. See
+resolved against the caller's working directory and does not change the run
+root. You can also start the wrapper by its absolute path from the experiment
+directory and omit `--run-root`. See
 [run roots](docs/running/README.md#choose-a-run-root) for account setup and path rules.
 
 For the full supplied task list, use:
 
 ```bash
-python3 run_controller_tb.py --run-config run_config_terminal_bench_2.1.yaml
+python3 run_controller_tb.py --run-config run_config_examples/run_config_terminal_bench_2.1.yaml
 ```
 
 For all 70 tasks in Terminal-Bench-Science 0.1, use:
 
 ```bash
-python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_terminal_bench_science_0.1.yaml
+python3 run_controller_tb.py --benchmarks science-0.1 --run-config run_config_examples/run_config_terminal_bench_science_0.1.yaml
 ```
 
-The supplied [Science configuration](run_config_terminal_bench_science_0.1.yaml) lists the published
+The supplied [Science configuration](run_config_examples/run_config_terminal_bench_science_0.1.yaml) lists the published
 `v0.1.0` tasks using slash-separated IDs. It selects `agent_v1_08_wstop3`, with
 `http_read_timeout_seconds: 36300` (10 hours 5 minutes) and
 `supervisor_inactivity_timeout_seconds: 39600` (11 hours) in `agent_parameters` to accommodate long
@@ -139,12 +148,12 @@ In one terminal, start the runtime:
 ```
 
 Wait for `Runtime ready` and leave that terminal running. Set
-`backend: codex_openai_api_key` in `run_config_terminal_bench.yaml`, then run in
+`backend: codex_openai_api_key` in your local `run_config.yaml`, then run in
 another terminal:
 
 ```bash
 export OPENAI_API_KEY='your-openai-api-key'
-python3 run_controller.py --run-config run_config_terminal_bench.yaml
+python3 run_controller.py
 ```
 
 Use nested `agent_parameters`; legacy root settings and `codex_accounts` are
