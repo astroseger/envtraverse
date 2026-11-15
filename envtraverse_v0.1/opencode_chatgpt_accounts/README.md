@@ -105,12 +105,14 @@ therefore blocks account commands and subsequent controller preflight/cleanup.
 From the repository root, recover with:
 
 ```bash
-python3 opencode_usage.py ACCOUNT
+python3 src/controller/opencode_usage.py ACCOUNT
 # Optionally reuse an existing compatible image with --image SAME_VERSION_IMAGE.
 ```
 
 Recovery verifies that the previous game container has stopped, collects usage
 from the same account path, and clears the marker only after saving the snapshot.
+From another directory, invoke the script by its absolute path; relative account
+paths resolve against your current working directory.
 Do not remove the marker to bypass collection or clean the account manually.
 
 ## Locking and image reuse

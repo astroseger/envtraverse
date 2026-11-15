@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shlex
 import shutil
 import signal
 import subprocess
@@ -19,7 +20,7 @@ import uuid
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS.parent))
-import account_locks as shared_account_locks
+from src import account_locks as shared_account_locks
 
 DATA_PATH = "/home/user/.local/share/opencode"
 CHATGPT_METHODS = {"chatgpt-headless", "chatgpt-browser"}
@@ -61,9 +62,12 @@ def pending_usage_path(account: Path) -> Path:
 def require_no_pending_usage(account: Path) -> None:
     marker = pending_usage_path(account)
     if marker.exists() or marker.is_symlink():
+        recovery_command = shlex.join([
+            "python3", str(SCRIPTS.parent / "src/controller/opencode_usage.py"), str(account),
+        ])
         raise AccountError(
             f"Account has uncollected game usage ({marker}). Preserve its database and run "
-            f"python3 {SCRIPTS.parent / 'opencode_usage.py'} {account} before checking, preparing, or cleaning it."
+            f"{recovery_command} before checking, preparing, or cleaning it."
         )
 
 
