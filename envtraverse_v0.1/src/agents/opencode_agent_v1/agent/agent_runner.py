@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from agent import LOG_FILE
+from session_inspector import CLIENT_STATE_PATH, SessionInspection, inspect_sessions
+
+
+ROOT = Path(__file__).resolve().parent
+AGENT_PATH = ROOT / "agent.py"
+RUNNER_LOG_FILE = ROOT / "agent_runner.log"
+
+# Environment initialization may wait for a long Docker build without agent.log output.
+DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60.0
+MAX_RECOVERY_ATTEMPTS = 10
+POLL_SECONDS = 5.0
+TERMINATE_GRACE_SECONDS = 30.0
+
+
+def log(message: str) -> None:
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S %z")
+    line = f"{timestamp} {message}"
+    print(line, flush=True)
+    with RUNNER_LOG_FILE.open("a", encoding="utf-8") as log_fh:
+        log_fh.write(line + "\n")
+
+
+def build_agent_command(
+    *,
+    game_name: str | None,
+    recovery: bool,
+    model: str | None,
+    reasoning_effort: str | None,
+    thinking: bool = False,
+    opencode_agent: str | None = None,
+) -> list[str]:
+    command = [sys.executable, str(AGENT_PATH)]
+    if model is not None:
+        command.extend(["--model", model])
+    if reasoning_effort is not None:
+        command.extend(["--reasoning-effort", reasoning_effort])
+    if thinking:
+        command.append("--opencode-thinking")
+    if opencode_agent is not None:
+        command.extend(["--opencode-agent", opencode_agent])
+    if recovery:
+        command.append("--recovery")
+    else:
+        if game_name is None:
+            raise RuntimeError("game_name is required for master mode.")
+        command.extend(["--master", game_name])
+    return command
+
+
+def start_agent(command: list[str]) -> subprocess.Popen[bytes]:
+    log(f"agent_runner.py: starting {' '.join(command)}")
+    return subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+
+
+def terminate_agent(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+
+    log(f"agent_runner.py: terminating stale agent pid={process.pid}")
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    try:
+        process.wait(timeout=TERMINATE_GRACE_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    log(f"agent_runner.py: killing stale agent pid={process.pid}")
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    process.wait()
+
+
+def stop_conditions_met(inspection: SessionInspection) -> bool:
+    return inspection.terminal
+
+
+def inspect_and_should_stop() -> bool:
+    inspection = inspect_sessions()
+    log_inspection(inspection)
+    return stop_conditions_met(inspection)
+
+
+def log_inspection(inspection: SessionInspection) -> None:
+    log(
+        "agent_runner.py: inspection "
+        f"step_index={inspection.step_index} "
+        f"terminal={inspection.terminal}"
+    )
+
+
+def log_idle_seconds(started_at: float) -> float:
+    try:
+        last_activity_at = max(LOG_FILE.stat().st_mtime, started_at)
+    except FileNotFoundError:
+        last_activity_at = started_at
+    return time.time() - last_activity_at
+
+
+def wait_for_agent(
+    process: subprocess.Popen[bytes], label: str, *,
+    inactivity_timeout_seconds: float = DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS,
+) -> str:
+    started_at = time.time()
+    while True:
+        return_code = process.poll()
+        if return_code is not None:
+            log(f"agent_runner.py: {label} stopped with exit code {return_code}")
+            return "exited"
+
+        idle_seconds = log_idle_seconds(started_at)
+        if idle_seconds >= inactivity_timeout_seconds:
+            if inspect_and_should_stop():
+                log("agent_runner.py: stop condition met during stale-log check; stopping supervisor")
+                terminate_agent(process)
+                return "stop"
+
+            log(
+                "agent_runner.py: agent.log is stale for "
+                f"{int(idle_seconds)} seconds; stopping {label}"
+            )
+            terminate_agent(process)
+            return "stale"
+
+        time.sleep(POLL_SECONDS)
+
+
+def ensure_fresh_runner_paths() -> None:
+    if RUNNER_LOG_FILE.exists():
+        raise FileExistsError(f"Fresh supervised run requires this path to be absent: {RUNNER_LOG_FILE}")
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the agent with recovery supervision.")
+    parser.add_argument("GAME_NAME")
+    parser.add_argument("--model", help="OpenCode model, optionally including #variant")
+    parser.add_argument("--reasoning-effort", help="OpenCode model variant; omitted preserves its default")
+    parser.add_argument("--opencode-thinking", action="store_true", help="Include model reasoning in logs")
+    parser.add_argument("--opencode-agent", help="OpenCode's primary agent; omitted preserves its default")
+    parser.add_argument(
+        "--supervisor-inactivity-timeout-seconds",
+        type=float,
+        default=DEFAULT_SUPERVISOR_INACTIVITY_TIMEOUT_SECONDS,
+        help="Seconds without agent.log updates before stopping the agent (default: 7200).",
+    )
+    parser.add_argument(
+        "--recovery-delay-seconds",
+        type=float,
+        default=0.0,
+        help="Seconds to wait before every recovery attempt (default: 0).",
+    )
+    parser.add_argument(
+        "--max-recovery-attempts",
+        type=int,
+        default=MAX_RECOVERY_ATTEMPTS,
+        help="Maximum number of recovery attempts; 0 disables recovery (default: 10).",
+    )
+    args = parser.parse_args(argv)
+    if (not math.isfinite(args.supervisor_inactivity_timeout_seconds)
+            or args.supervisor_inactivity_timeout_seconds <= 0):
+        parser.error("--supervisor-inactivity-timeout-seconds must be a finite, positive number of seconds")
+    if not math.isfinite(args.recovery_delay_seconds) or args.recovery_delay_seconds < 0:
+        parser.error("--recovery-delay-seconds must be a finite, non-negative number of seconds")
+    if args.max_recovery_attempts < 0:
+        parser.error("--max-recovery-attempts must be a non-negative integer")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    ensure_fresh_runner_paths()
+
+    active_process = None
+    try:
+        master_process = start_agent(
+            build_agent_command(
+                game_name=args.GAME_NAME,
+                recovery=False,
+                model=args.model,
+                reasoning_effort=args.reasoning_effort,
+                thinking=args.opencode_thinking,
+                opencode_agent=args.opencode_agent,
+            )
+        )
+        active_process = master_process
+        master_status = wait_for_agent(
+            master_process, "master", inactivity_timeout_seconds=args.supervisor_inactivity_timeout_seconds,
+        )
+        if master_status == "stop":
+            return 0
+
+        if not CLIENT_STATE_PATH.is_file():
+            log("agent_runner.py: master stopped without a saved client session; not entering recovery")
+            return master_process.returncode or 0
+
+        recovery_attempts = 0
+        while True:
+            if inspect_and_should_stop():
+                log("agent_runner.py: stop condition met; stopping supervisor")
+                return 0
+
+            if recovery_attempts >= args.max_recovery_attempts:
+                log(
+                    "agent_runner.py: recovery attempt limit reached "
+                    f"({args.max_recovery_attempts}); stopping supervisor"
+                )
+                return 0
+
+            if args.recovery_delay_seconds > 0:
+                log(
+                    "agent_runner.py: waiting "
+                    f"{args.recovery_delay_seconds:g} seconds before recovery"
+                )
+                time.sleep(args.recovery_delay_seconds)
+                if inspect_and_should_stop():
+                    log("agent_runner.py: stop condition met; stopping supervisor")
+                    return 0
+
+            recovery_attempts += 1
+            log(
+                "agent_runner.py: recovery attempt "
+                f"{recovery_attempts}/{args.max_recovery_attempts}"
+            )
+            recovery_process = start_agent(
+                build_agent_command(
+                    game_name=None,
+                    recovery=True,
+                    model=args.model,
+                    reasoning_effort=args.reasoning_effort,
+                    thinking=args.opencode_thinking,
+                    opencode_agent=args.opencode_agent,
+                )
+            )
+            active_process = recovery_process
+            recovery_status = wait_for_agent(
+                recovery_process, "recovery", inactivity_timeout_seconds=args.supervisor_inactivity_timeout_seconds,
+            )
+            if recovery_status == "stop":
+                return 0
+
+    except KeyboardInterrupt:
+        log("agent_runner.py: interrupted")
+        return 130
+    finally:
+        if active_process is not None and active_process.poll() is None:
+            terminate_agent(active_process)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
