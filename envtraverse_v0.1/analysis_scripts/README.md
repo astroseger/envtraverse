@@ -172,9 +172,10 @@ The script refreshes `run/raw_cost_tokens.json` and reads
 `run/<alias>/run/agent.log` and `agent_runner.log` files. Preserve both output
 directories together when archiving a Terminal-Bench experiment.
 
-The report shows per-task reward and recovery counts, mean reward, normalized
-cost tokens, cybersecurity-related error counts, and outcomes grouped by
-termination reason. Null or nonnumeric rewards count as zero. A non-normal final
+The report shows per-task reward, recovery counts, and normalized cost tokens
+in millions, plus mean reward, total cost tokens, cybersecurity-related error
+counts, and outcomes grouped by termination reason. Null or nonnumeric rewards
+count as zero. A non-normal final
 runner-log message is classified as failed recovery; this is a log-based
 diagnostic, separate from the verifier reward.
 

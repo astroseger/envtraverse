@@ -150,11 +150,13 @@ class ReportTests(unittest.TestCase):
     def test_report_includes_null_rewards_and_distinguishes_failed_recovery_from_encounters(self):
         self.sample()
         results = report.load_results(self.project)
-        total_cost_tokens = report.load_total_cost_tokens(self.tokens_path, {r.game_id for r in results})
-        self.assertEqual(report.render_markdown(results, total_cost_tokens),
-            "| game_id | score | N_recovery |\n| ------- | ----: | ---------: |\n"
-            "| task-a  |     1 |          0 |\n| task-b  |     0 |         10 |\n"
-            "| task-c  |     1 |          6 |\n\n"
+        tokens_by_game = report.load_cost_tokens_by_game(self.tokens_path, {r.game_id for r in results})
+        self.assertEqual(report.render_markdown(results, tokens_by_game),
+            "| game_id | score | N_recovery | cost tokens (M) |\n"
+            "| ------- | ----: | ---------: | --------------: |\n"
+            "| task-a  |     1 |          0 |            0.00 |\n"
+            "| task-b  |     0 |         10 |            0.24 |\n"
+            "| task-c  |     1 |          6 |            0.00 |\n\n"
             "score: 0.666667 (2/3)\ncost tokens (M): 0.24\n"
             "n_fail_recovery: 1 (1 because of cybersecurity errors)\n"
             "n_encounter_cyber_security_error: 2\n"
@@ -180,7 +182,7 @@ class ReportTests(unittest.TestCase):
         for index, (reason, reward) in enumerate(cases):
             self.add_game(str(index), f"task-{index}", reward, termination_reason=reason)
         results = report.load_results(self.project)
-        self.assertEqual(report.render_markdown(results, 0).splitlines()[-1],
+        self.assertEqual(report.render_markdown(results, {r.game_id: 0 for r in results}).splitlines()[-1],
                          "agent_stopped: 1/1,  agent_timeout: 1/2,  all_succeeded: 0/1,  finish: 5/7")
 
     def test_missing_and_null_termination_reasons_are_counted_as_unknown(self):
@@ -191,7 +193,7 @@ class ReportTests(unittest.TestCase):
         del raw["termination_reason"]
         path.write_text(json.dumps(raw))
         results = report.load_results(self.project)
-        self.assertEqual(report.render_markdown(results, 0).splitlines()[-1], "unknown: 1/2")
+        self.assertEqual(report.render_markdown(results, {r.game_id: 0 for r in results}).splitlines()[-1], "unknown: 1/2")
 
     def test_invalid_termination_reasons_fail(self):
         self.add_game("a", "task-a", 1)
@@ -206,15 +208,15 @@ class ReportTests(unittest.TestCase):
     def test_cost_tokens_reuse_arc3_formula_and_cached_input_accounting(self):
         records = self.sample()
         self.assertIs(report.cost_tokens, arc3_report.cost_tokens)
-        self.assertAlmostEqual(report.load_total_cost_tokens(self.tokens_path, {"task-a", "task-b", "task-c"}),
-                               sum(arc3_report.cost_tokens(record) for record in records))
+        self.assertEqual(report.load_cost_tokens_by_game(self.tokens_path, {"task-a", "task-b", "task-c"}),
+                         {record["environment_id"]: arc3_report.cost_tokens(record) for record in records})
 
     def test_versioned_terminal_bench_game_ids_work_in_the_full_cli(self):
         self.add_game("alias", "terminal-bench-2.1-fix-git", {"reward": 1})
         result = subprocess.run([sys.executable, "-S", str(SCRIPT), str(self.project)],
                                 cwd=self.root, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("| terminal-bench-2.1-fix-git |     1 |          0 |", result.stdout)
+        self.assertIn("| terminal-bench-2.1-fix-git |     1 |          0 |            0.00 |", result.stdout)
 
     def test_cli_includes_setup_failure_without_a_started_session(self):
         game_id = "terminal-bench-2.1-fix-ocaml-gc"
@@ -233,7 +235,7 @@ class ReportTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-S", str(SCRIPT), str(self.project)],
                                 cwd=self.root, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"| {game_id} |     0 |          0 |", result.stdout)
+        self.assertIn(f"| {game_id} |     0 |          0 |            0.00 |", result.stdout)
         self.assertIn("score: 0.500000 (1/2)", result.stdout)
         self.assertIn("cost tokens (M): 0.17", result.stdout)
         self.assertEqual(result.stdout.splitlines()[-1], "error: 1/1,  finish: 0/1")
@@ -254,7 +256,7 @@ class ReportTests(unittest.TestCase):
             with self.subTest(message=message):
                 self.tokens_path.write_text(json.dumps(payload))
                 with self.assertRaisesRegex(ValueError, message):
-                    report.load_total_cost_tokens(self.tokens_path, {"task-a", "task-b", "task-c"})
+                    report.load_cost_tokens_by_game(self.tokens_path, {"task-a", "task-b", "task-c"})
 
     def test_empty_or_missing_result_inputs_fail_instead_of_printing_zero_score(self):
         with self.assertRaisesRegex(ValueError, "No results found"):
@@ -281,7 +283,7 @@ class ReportTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-S", str(SCRIPT), self.project.name],
                                     cwd=self.root, capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(result.stdout.startswith("| game_id | score | N_recovery |\n"))
+            self.assertTrue(result.stdout.startswith("| game_id | score | N_recovery | cost tokens (M) |\n"))
             self.assertNotIn("Saved token", result.stdout)
             self.assertIn("cost tokens (M): 0.24", result.stdout)
             self.assertEqual(result.stdout.splitlines()[-1], "agent_stopped: 1/1,  finish: 0/2")

@@ -130,7 +130,7 @@ def load_results(project_dir: Path) -> list[GameResult]:
     return sorted(results, key=lambda result: result.game_id)
 
 
-def load_total_cost_tokens(path: Path, game_ids: set[str]) -> float:
+def load_cost_tokens_by_game(path: Path, game_ids: set[str]) -> dict[str, float]:
     records = read_json(path)
     if not isinstance(records, list):
         raise ValueError(f"{path}: expected a list of token records")
@@ -148,35 +148,38 @@ def load_total_cost_tokens(path: Path, game_ids: set[str]) -> float:
         raise ValueError(f"{path}: missing token records for {', '.join(sorted(missing))}")
     if extra := tokens.keys() - game_ids:
         raise ValueError(f"{path}: token records without results for {', '.join(sorted(extra))}")
-    token_totals = []
+    token_totals = {}
     for game_id, record in tokens.items():
         try:
-            token_totals.append(cost_tokens(record))
+            token_totals[game_id] = cost_tokens(record)
         except ValueError as exc:
             raise ValueError(f"{path}: {game_id}: {exc}") from exc
-    return math.fsum(token_totals)
+    return token_totals
 
 
-def render_markdown(results: list[GameResult], total_cost_tokens: float) -> str:
-    headers = ("game_id", "score", "N_recovery")
+def render_markdown(results: list[GameResult], cost_tokens_by_game: dict[str, float]) -> str:
+    headers = ("game_id", "score", "N_recovery", "cost tokens (M)")
     data = []
     for result in results:
         game_id = result.game_id.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
-        data.append((game_id, f"{result.score:g}", str(result.recovery_attempts)))
+        data.append((game_id, f"{result.score:g}", str(result.recovery_attempts),
+                     f"{cost_tokens_by_game[result.game_id] / 1_000_000:,.2f}"))
     widths = tuple(
         max([len(header), *(len(row[column]) for row in data)])
         for column, header in enumerate(headers)
     )
 
-    def format_row(row: tuple[str, str, str]) -> str:
+    def format_row(row: tuple[str, str, str, str]) -> str:
         return (f"| {row[0]:<{widths[0]}} | {row[1]:>{widths[1]}} "
-                f"| {row[2]:>{widths[2]}} |")
+                f"| {row[2]:>{widths[2]}} | {row[3]:>{widths[3]}} |")
 
     rows = [format_row(headers), format_row((
         "-" * widths[0], "-" * (widths[1] - 1) + ":", "-" * (widths[2] - 1) + ":",
+        "-" * (widths[3] - 1) + ":",
     ))]
     rows.extend(format_row(row) for row in data)
     total_score = math.fsum(result.score for result in results)
+    total_cost_tokens = math.fsum(cost_tokens_by_game[result.game_id] for result in results)
     failed = sum(result.failed_recovery for result in results)
     cyber_failed = sum(result.failed_because_of_cyber_security for result in results)
     encountered = sum(result.encountered_cyber_security_error for result in results)
@@ -209,8 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         subprocess.run([sys.executable, str(EXTRACTOR_PATH), str(run_dir)],
                        check=True, stdout=sys.stderr)
         results = load_results(project_dir)
-        total_cost_tokens = load_total_cost_tokens(run_dir / "raw_cost_tokens.json", {r.game_id for r in results})
-        output = render_markdown(results, total_cost_tokens)
+        tokens_by_game = load_cost_tokens_by_game(run_dir / "raw_cost_tokens.json", {r.game_id for r in results})
+        output = render_markdown(results, tokens_by_game)
     except subprocess.CalledProcessError as exc:
         print(f"Error: extract_raw_cost_tokens.py failed with exit code {exc.returncode}; no report generated.",
               file=sys.stderr)
