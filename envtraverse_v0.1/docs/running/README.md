@@ -245,6 +245,7 @@ supports your backend. These are the main choices:
 | Codex baseline | `agent_v1` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
 | Codex stop-and-report | `agent_v1_01_wstop` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
 | Codex stop after repeated inactivity | `agent_v1_08_wstop3` | `codex_chatgpt_accounts`, `codex_openai_api_key` | All bundled environments |
+| [OpenCode baseline](../../src/agents/opencode_agent_v1/README.md) | `opencode_agent_v1` | `opencode_chatgpt_accounts` | All bundled environments |
 | OpenCode stop after repeated inactivity | `opencode_agent_v1_08_wstop3` | `opencode_chatgpt_accounts` | All bundled environments |
 | Codex Controlled_RESET | `test_arc3_agent_v1_02_wstop_wreset` | `codex_chatgpt_accounts`, `codex_openai_api_key` | ARC-AGI-3 adapters that emit `metadata.txt` |
 

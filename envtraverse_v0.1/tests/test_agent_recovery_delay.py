@@ -132,6 +132,10 @@ class OpenCodeWstop3RecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparation
     agent_name = "opencode_agent_v1_08_wstop3"
 
 
+class OpenCodeBaselineRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
+    agent_name = "opencode_agent_v1"
+
+
 class WresetRecoveryDelayPreparationTest(AgentV1RecoveryDelayPreparationTest):
     agent_name = "test_arc3_agent_v1_02_wstop_wreset"
 
@@ -333,6 +337,10 @@ class Wstop3RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
 
 class OpenCodeWstop3RecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
     agent_name = "opencode_agent_v1_08_wstop3"
+
+
+class OpenCodeBaselineRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
+    agent_name = "opencode_agent_v1"
 
 
 class WresetRecoveryDelaySupervisorTest(AgentV1RecoveryDelaySupervisorTest):
