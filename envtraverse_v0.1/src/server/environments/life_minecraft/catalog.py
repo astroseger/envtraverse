@@ -22,6 +22,7 @@ def validate_rule(rule: Any, *, depth: int = 0) -> None:
         "inventory_any": {"type", "items", "count"},
         "equipped": {"type", "item", "count"},
         "kill": {"type", "entity", "count"},
+        "kill_any": {"type", "entities", "count"},
         "dimension_entry": {"type", "dimension"},
         "transition": {"type", "from_dimension", "dimension", "inventory"},
         "dragon_kill": {"type", "count"},
@@ -38,10 +39,13 @@ def validate_rule(rule: Any, *, depth: int = 0) -> None:
     for field in ("item", "entity", "dimension", "from_dimension"):
         if field in rule and (not isinstance(rule[field], str) or not _IDENTIFIER.fullmatch(rule[field])):
             raise ValueError(f"{field} must be a Minecraft identifier")
-    if kind == "inventory_any":
-        items = rule["items"]
-        if not isinstance(items, list) or not items or any(not isinstance(item, str) or not _IDENTIFIER.fullmatch(item) for item in items) or len(set(items)) != len(items):
-            raise ValueError("items must be a nonempty list of unique Minecraft identifiers")
+    if kind in ("inventory_any", "kill_any"):
+        field = "items" if kind == "inventory_any" else "entities"
+        identifiers = rule[field]
+        if (not isinstance(identifiers, list) or not identifiers
+                or any(not isinstance(value, str) or not _IDENTIFIER.fullmatch(value) for value in identifiers)
+                or len(set(identifiers)) != len(identifiers)):
+            raise ValueError(f"{field} must be a nonempty list of unique Minecraft identifiers")
     if kind == "transition":
         if not isinstance(rule["inventory"], dict) or not rule["inventory"]:
             raise ValueError("Transition inventory must be a nonempty item/count mapping")
@@ -56,13 +60,16 @@ def list_tasks() -> list[dict[str, Any]]:
         raise ValueError("Unsupported task catalog schema")
     seen = set()
     for task in catalog["tasks"]:
-        if not isinstance(task, dict) or set(task) != {"id", "rank", "instruction", "requires_hostiles", "success"}:
+        required = {"id", "instruction", "requires_hostiles", "success"}
+        if not isinstance(task, dict) or not required <= set(task) or set(task) - required - {"rank"}:
             raise ValueError("Invalid task definition")
         if not isinstance(task["id"], str) or not re.fullmatch(r"[a-z][a-z0-9_]*", task["id"]) or task["id"] in seen:
             raise ValueError("Invalid or duplicate task ID")
         seen.add(task["id"])
-        if type(task["rank"]) is not int or task["rank"] < 1 or type(task["requires_hostiles"]) is not bool:
-            raise ValueError("Invalid task rank or hostility requirement")
+        if "rank" in task and (type(task["rank"]) is not int or task["rank"] < 1):
+            raise ValueError("Invalid optional task rank")
+        if type(task["requires_hostiles"]) is not bool:
+            raise ValueError("Invalid task hostility requirement")
         if not isinstance(task["instruction"], str) or not task["instruction"].strip():
             raise ValueError("Task instruction must not be empty")
         validate_rule(task["success"])
@@ -86,4 +93,4 @@ if __name__ == "__main__":
         print(json.dumps({"schema_version": CATALOG_SCHEMA_VERSION, "tasks": tasks}, indent=2))
     else:
         for task in tasks:
-            print(f'{task["rank"]:2}. {task["id"]}: {task["instruction"]}')
+            print(f'{task["id"]}: {task["instruction"]}')

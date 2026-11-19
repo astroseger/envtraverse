@@ -127,6 +127,6 @@ def test_protocol_roundtrip_and_public_description_are_pixel_only():
     files, terminal = decode_observation(encoded)
     assert files["binary.bin"] == b"abc" and terminal
     text = environment_description(get_task("craft_wooden_pickaxe"), Settings())
-    assert "latest_frame.jpg" in text and "minecraft_task_timeout_seconds" in text
+    assert "latest_frame.jpg" in text and "Complete the task within 1800 seconds." in text
     assert "key_down" in text and "mouse_click" in text
     assert "telemetry/state.json" not in text

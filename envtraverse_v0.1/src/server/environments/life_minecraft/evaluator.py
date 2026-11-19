@@ -114,6 +114,13 @@ class TaskEvaluator:
         if kind == "inventory_any":
             counts = _inventory(stacks)
             return sum(counts[item] for item in rule["items"]) >= rule["count"]
+        if kind == "kill_any":
+            kills, initial_kills = counters.get("kills", {}), base.get("kills", {})
+            # Events and snapshots describe the same kills; reconcile each type
+            # before combining variants, since either source may be ahead.
+            count = sum(max(kills.get(entity, 0) - initial_kills.get(entity, 0),
+                            self._event_kills[entity]) for entity in rule["entities"])
+            return count >= rule["count"]
         if kind in ("crafted", "kill"):
             name, item = ("crafted", rule["item"]) if kind == "crafted" else ("kills", rule["entity"])
             count = counters.get(name, {}).get(item, 0) - base.get(name, {}).get(item, 0)

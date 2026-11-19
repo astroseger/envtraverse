@@ -1,7 +1,7 @@
 # Life Minecraft
 
 Real-time Minecraft Java 1.21.1 survival for EnvTraverse. Each `games` entry selects
-one task from a declarative, versioned 20-task catalog. Each attempt gets a fresh
+one task from a declarative, versioned task catalog. Each attempt gets a fresh
 world, its own graphical client and server, and a private evaluator. The world
 continues running between actions and while the agent thinks.
 

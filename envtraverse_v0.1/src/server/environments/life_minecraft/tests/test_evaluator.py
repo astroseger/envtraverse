@@ -34,10 +34,10 @@ def evaluator(task="craft_wooden_pickaxe", baseline=None, timeout=10):
     return TaskEvaluator(get_task(task), baseline or state(), timeout, clock=clock), clock
 
 
-def test_catalog_has_twenty_ranked_unique_valid_tasks():
+def test_catalog_has_unique_valid_tasks_without_required_ranks():
     tasks = list_tasks()
-    assert len(tasks) == len({task["id"] for task in tasks}) == 20
-    assert [task["rank"] for task in tasks] == list(range(1, 21))
+    assert len(tasks) == len({task["id"] for task in tasks}) == 25
+    assert all("rank" not in task for task in tasks)
     for task in tasks:
         validate_rule(task["success"])
 
@@ -143,6 +143,104 @@ def test_player_credited_kills_and_baseline_are_required():
     assert check.observe(initial, [event("kill", {"entity_type": "minecraft:zombie", "credited_to_player": True}, seq=13)])["success"]
 
 
+
+@pytest.mark.parametrize("task,entity", [
+    ("kill_zombie", "zombie"), ("kill_zombie", "husk"),
+    ("kill_spider", "spider"), ("kill_spider", "cave_spider"),
+    ("kill_skeleton", "skeleton"), ("kill_enderman", "enderman"),
+    ("kill_ghast", "ghast"),
+])
+@pytest.mark.parametrize("source", ["snapshot", "event"])
+def test_mob_goals_accept_player_credited_kills_from_either_source(task, entity, source):
+    initial = state()
+    entity = "minecraft:" + entity
+    initial["counters"]["kills"][entity] = 5
+    check, _ = evaluator(task, initial)
+    assert check.observe(initial) is None
+    current = deepcopy(initial)
+    events = []
+    if source == "snapshot":
+        current["counters"]["kills"][entity] += 1
+    else:
+        events.append(event("kill", {"entity_type": entity, "credited_to_player": True}))
+    assert check.observe(current, events)["success"]
+    assert get_task(task)["requires_hostiles"] is True
+
+
+@pytest.mark.parametrize("spiders,cave_spiders", [(3, 0), (2, 1), (1, 2), (0, 3)])
+def test_three_spiders_combines_variants_and_ignores_previous_kills(spiders, cave_spiders):
+    initial = state()
+    initial["counters"]["kills"] = {"minecraft:spider": 7, "minecraft:cave_spider": 9}
+    check, _ = evaluator("kill_three_spiders", initial)
+    assert check.observe(initial) is None
+    current = deepcopy(initial)
+    current["counters"]["kills"]["minecraft:spider"] += spiders
+    current["counters"]["kills"]["minecraft:cave_spider"] += cave_spiders
+    last = "minecraft:spider" if spiders else "minecraft:cave_spider"
+    current["counters"]["kills"][last] -= 1
+    assert check.observe(current) is None
+    current["counters"]["kills"][last] += 1
+    assert check.observe(current)["success"]
+
+
+@pytest.mark.parametrize("task,unrelated", [
+    ("kill_zombie", "drowned"), ("kill_spider", "silverfish"),
+    ("kill_three_spiders", "zombie"), ("kill_skeleton", "wither_skeleton"),
+    ("kill_enderman", "endermite"), ("kill_ghast", "blaze"),
+])
+def test_mob_goals_exclude_unlisted_entities(task, unrelated):
+    check, _ = evaluator(task)
+    current = state()
+    entity = "minecraft:" + unrelated
+    current["counters"]["kills"][entity] = 100
+    assert check.observe(current, [event("kill", {"entity_type": entity, "credited_to_player": True})]) is None
+
+
+def test_group_kill_replayed_events_and_snapshots_do_not_double_count():
+    check, _ = evaluator("kill_three_spiders")
+    current = state()
+    current["counters"]["kills"] = {"minecraft:spider": 1, "minecraft:cave_spider": 1}
+    events = [event("kill", {"entity_type": "minecraft:spider", "credited_to_player": True}, seq=11),
+              event("kill", {"entity_type": "minecraft:cave_spider", "credited_to_player": True}, seq=12)]
+    assert check.observe(current, events) is None
+    assert check.observe(current, events) is None
+    third = event("kill", {"entity_type": "minecraft:cave_spider", "credited_to_player": True}, seq=13)
+    assert check.observe(current, [third])["success"]
+
+
+def test_group_kill_combines_entities_when_their_event_and_snapshot_counts_differ():
+    initial = state()
+    initial["counters"]["kills"] = {"minecraft:spider": 10, "minecraft:cave_spider": 5}
+    check, _ = evaluator("kill_three_spiders", initial)
+    current = deepcopy(initial)
+    current["counters"]["kills"]["minecraft:spider"] += 2
+    # The snapshot knows about two spiders; the events know about one of those
+    # spiders and one newer cave spider. There are three distinct kills in total.
+    events = [event("kill", {"entity_type": "minecraft:spider", "credited_to_player": True}, seq=11),
+              event("kill", {"entity_type": "minecraft:cave_spider", "credited_to_player": True}, seq=12)]
+    assert check.observe(current, events)["success"]
+
+
+def test_group_kill_requires_player_credit_and_events_after_baseline():
+    check, _ = evaluator("kill_spider")
+    current = state()
+    events = [event("kill", {"entity_type": "minecraft:spider", "credited_to_player": True}, seq=10),
+              event("entity_death", {"entity_type": "minecraft:cave_spider"}, seq=11),
+              event("kill", {"entity_type": "minecraft:cave_spider", "credited_to_player": False}, seq=12)]
+    assert check.observe(current, events) is None
+    assert check.observe(current, [event("kill", {
+        "entity_type": "minecraft:cave_spider", "credited_to_player": True}, seq=13)])["success"]
+
+
+def test_three_skeleton_goal_still_requires_three_kills():
+    check, _ = evaluator("kill_three_skeletons")
+    current = state()
+    current["counters"]["kills"]["minecraft:skeleton"] = 2
+    assert check.observe(current) is None
+    current["counters"]["kills"]["minecraft:skeleton"] = 3
+    assert check.observe(current)["success"]
+
+
 def test_dragon_requires_completed_defeat_with_player_credit():
     check, _ = evaluator("kill_ender_dragon")
     current = state()
@@ -181,6 +279,14 @@ def test_invalid_attempt_remains_invalid_after_recovery(change, reason):
     {"type": "crafted", "item": "minecraft:diamond", "count": True},
     {"type": "all", "rules": []},
     {"type": "inventory_any", "items": ["minecraft:diamond", "minecraft:diamond"], "count": 1},
+    {"type": "kill_any", "entities": [], "count": 1},
+    {"type": "kill_any", "entities": ["minecraft:spider", "minecraft:spider"], "count": 3},
+    {"type": "kill_any", "entities": ["spider"], "count": 1},
+    {"type": "kill_any", "entities": [None], "count": 1},
+    {"type": "kill_any", "entities": "minecraft:spider", "count": 1},
+    {"type": "kill_any", "entities": ["minecraft:spider"], "count": True},
+    {"type": "kill_any", "entities": ["minecraft:spider"], "count": 0},
+    {"type": "kill_any", "entities": ["minecraft:spider"], "count": 1, "entity": "minecraft:spider"},
 ])
 def test_invalid_rules_rejected(rule):
     with pytest.raises(ValueError):
