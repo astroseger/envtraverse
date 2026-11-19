@@ -5,8 +5,8 @@ produce reports. Run the examples from this directory. See
 [Running experiments](../docs/running/README.md) for setup and execution examples.
 
 Most commands take a run directory such as `/path/to/experiment/run`.
-The Terminal-Bench report takes the **parent experiment directory** containing
-both `run/` and `run_tb/`.
+The Terminal-Bench and Life Minecraft reports take the **parent experiment
+directory**, containing `run/` and respectively `run_tb/` or `run_mc/`.
 
 Extraction and replay refresh derived JSON files in the run directory. Keep the
 original logs and the environment definitions used for the experiment when
@@ -181,6 +181,10 @@ diagnostic, separate from the verifier reward.
 
 It does not replay tasks or rerun verification. See the
 [Terminal-Bench guide](../README_tb.md) for runtime shutdown and grading.
+
+## Life Minecraft
+
+Run `python3 life_minecraft/analysis_v1.py /path/to/experiment` to report task outcomes and gameplay statistics from `run/` and `run_mc/` (add `--json` for JSON output).
 
 ## Report versions and cost conventions
 

@@ -75,6 +75,10 @@ class RunPaths:
         return self.root / "run_tb"
 
     @property
+    def run_mc_dir(self) -> Path:
+        return self.root / "run_mc"
+
+    @property
     def runner_log(self) -> Path:
         return self.run_dir / "runner.log"
 
@@ -403,8 +407,8 @@ def parse_environment_config(
             raise RuntimeError(f"duplicate environment variable: {name_in_environment}")
         seen_variables.add(name_in_environment)
 
-    if name == "terminal_bench" and "session_id" in parameters:
-        raise RuntimeError("Terminal-Bench session_id is assigned separately to each game by the controller")
+    if name in {"terminal_bench", "life_minecraft"} and "session_id" in parameters:
+        raise RuntimeError(f"{name} session_id is assigned separately to each game by the controller")
 
     mounts = []
     raw_mounts = config.get("server_mounts", [])
@@ -428,10 +432,10 @@ def parse_environment_config(
         source_path = (paths.root / source).resolve()
         if not source_path.is_dir():
             message = f"Server mount source directory does not exist: {source_path}"
-            if name == "terminal_bench":
+            if name in {"terminal_bench", "life_minecraft"}:
                 message += (
                     "\nPlease run the host runtime first in a separate terminal: "
-                    f"{ROOT / 'src/server/environments/terminal_bench/host_runtime/run.sh'} "
+                    f"{ENVIRONMENTS_DIR / name / 'host_runtime/run.sh'} "
                     f"--run-root {str(paths.root)!r}"
                 )
             raise RuntimeError(message)
@@ -831,7 +835,7 @@ def docker_server_command(
         command.extend(["--mount", f"type=bind,src={mount.source},dst={mount.target}"])
 
     parameters = dict(environment.parameters)
-    if environment.name == "terminal_bench":
+    if environment.name in {"terminal_bench", "life_minecraft"}:
         parameters["session_id"] = game_alias
 
     command.extend([
