@@ -9,27 +9,24 @@ from .resources import WORKSPACE_FRAME_PATH
 
 def environment_description(task: dict[str, Any], settings: Settings, *,
                             latest_frame_path: str = WORKSPACE_FRAME_PATH) -> str:
-    respawn = ("This is hardcore: death fails the task and normal respawning is unavailable."
-               if settings.hardcore else "Death does not fail this task. Use Minecraft's Respawn button to continue.")
+    respawn = ("Hardcore mode: death counts as task failure; respawning is unavailable."
+               if settings.hardcore else "Death does not fail the task. You can respawn and continue.")
     return f'''You are playing Minecraft Java Edition in real time, in survival mode.
-Difficulty: {settings.difficulty}. Each task starts in a fresh world.
+Difficulty: {settings.difficulty}.
 
 Task:
 {task["instruction"]}
 
-Read your current view from {latest_frame_path}. The image is atomically replaced at a
-target of {settings.capture_fps:g} FPS. Reopen the file for a new image; the image includes
-the game's actual cursor. Image coordinates are {settings.width} by {settings.height},
-with (0,0) at the top left. Minecraft continues running while you read, think, and
-between actions; reading a frame does not pause or advance a discrete game step.
+Your current game view is available at {latest_frame_path}. The file is
+updated with each captured frame, approximately {settings.capture_fps:g}
+times per second. Reopen the image to see the latest frame.
 
-minecraft_task_timeout_seconds: {settings.minecraft_task_timeout_seconds:g} seconds of wall-clock time,
-starting when the world and first image are ready. It includes your thinking time.
-When this deadline expires the task irreversibly fails. Minecraft and image updates
-continue, and your next action returns terminal status without applying that action.
-Success is detected automatically and likewise reported on your next action.
+Image coordinates are {settings.width} by {settings.height},
+with (0,0) at the top left.
+
+Complete the task within {settings.minecraft_task_timeout_seconds:g} seconds.
+Do not leave the server or restart the game. Either action counts as task failure.
 {respawn}
-Leaving the server or restarting the game invalidates the attempt. Do not disconnect.
 
 Send actions as JSON objects. Responses are small confirmation files; continue reading
 {latest_frame_path} to observe results. Supported keys: {", ".join(sorted(KEYS))}.
@@ -54,9 +51,6 @@ Mouse buttons: left, middle, right.
   allowed range -10..10.
 - {{"id":"release_all"}}: release all held keys and mouse buttons.
 
-Mouse movement does not release held keys. Actions acknowledge immediately instead of
-waiting for a hold to finish. Only key_press and mouse_click release automatically;
-explicit key_down and mouse_down holds have no short automatic timeout. Use release_all
-when you need to stop. Use E to open/close inventory and absolute mouse input to use it.
-The first relative movement after the game grabs the pointer may be ignored by Minecraft.
+Actions return immediately, without waiting for timed presses to finish.
+Mouse movement does not release held keys or buttons.
 '''
