@@ -81,7 +81,7 @@ class Session:
                 if self.closing:
                     raise RuntimeError("Session closed during startup")
                 self.evaluator = TaskEvaluator(self.task, baseline,
-                                              self.settings.minecraft_task_timeout, clock=self.clock)
+                                              self.settings.minecraft_task_timeout_seconds, clock=self.clock)
                 self.last_state = baseline
                 self.started = True
                 self.metadata.update(status="running", ready_at=time.time(),
@@ -91,7 +91,7 @@ class Session:
                 for event in getattr(self.backend, "startup_events", []):
                     self.events.append({"source": "minecraft", **event})
                 self.event("task_started", task_id=self.task["id"],
-                           minecraft_task_timeout=self.settings.minecraft_task_timeout)
+                           minecraft_task_timeout_seconds=self.settings.minecraft_task_timeout_seconds)
             for name, target in (("frames", self._capture), ("evaluation", self._monitor)):
                 thread = threading.Thread(target=target, name=f"mc-{name}-{self.session_id[:8]}", daemon=True)
                 self.threads.append(thread)

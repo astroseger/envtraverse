@@ -15,11 +15,11 @@ import run_controller_mc as mc
 def test_session_id_is_assigned_and_cannot_be_overridden(tmp_path):
     paths = rf.RunPaths(tmp_path)
     assert paths.run_mc_dir == tmp_path / "run_mc"
-    environment = rf.EnvironmentConfig("life_minecraft", {"minecraft_task_timeout": 10}, [])
+    environment = rf.EnvironmentConfig("life_minecraft", {"minecraft_task_timeout_seconds": 10}, [])
     command = rf.docker_server_command("server", "internet", "internal", environment,
                                       "f" * 32, "craft_wooden_pickaxe", image="server:example", paths=paths)
     parameters = json.loads(command[command.index("--parameters") + 1])
-    assert parameters == {"minecraft_task_timeout": 10, "session_id": "f" * 32}
+    assert parameters == {"minecraft_task_timeout_seconds": 10, "session_id": "f" * 32}
     with pytest.raises(RuntimeError, match="session_id"):
         rf.parse_environment_config({"environment": "life_minecraft",
             "environment_parameters": {"session_id": "a" * 32}}, tmp_path / "config.yaml", paths=paths)

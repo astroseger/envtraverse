@@ -26,17 +26,17 @@ class TaskEvaluator:
     this latched verdict as terminal only when the next action arrives.
     """
 
-    def __init__(self, task: dict[str, Any], baseline: dict[str, Any], minecraft_task_timeout: float,
+    def __init__(self, task: dict[str, Any], baseline: dict[str, Any], minecraft_task_timeout_seconds: float,
                  *, clock: Callable[[], float] = time.monotonic):
         validate_rule(task["success"])
-        if type(minecraft_task_timeout) not in (float, int) or not math.isfinite(minecraft_task_timeout) or minecraft_task_timeout <= 0:
-            raise ValueError("minecraft_task_timeout must be positive and finite")
+        if type(minecraft_task_timeout_seconds) not in (float, int) or not math.isfinite(minecraft_task_timeout_seconds) or minecraft_task_timeout_seconds <= 0:
+            raise ValueError("minecraft_task_timeout_seconds must be positive and finite")
         if not baseline.get("connected") or not baseline.get("session_id"):
             raise ValueError("Evaluation requires a connected player and server session")
         self.task, self.baseline = deepcopy(task), deepcopy(baseline)
         self.clock, self.started = clock, clock()
-        self.minecraft_task_timeout = minecraft_task_timeout
-        self.deadline = self.started + minecraft_task_timeout
+        self.minecraft_task_timeout_seconds = minecraft_task_timeout_seconds
+        self.deadline = self.started + minecraft_task_timeout_seconds
         self.result: dict[str, Any] | None = None
         self.last_event_seq = baseline.get("last_event_seq", 0)
         self._entries: set[str] = set()

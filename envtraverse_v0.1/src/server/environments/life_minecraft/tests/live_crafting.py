@@ -33,7 +33,7 @@ def run(run_root: Path) -> Path:
     try:
         start_sent = True
         client.call('start', **identity, game_id='craft_wooden_pickaxe',
-                    settings=Settings(minecraft_task_timeout=600).to_dict())
+                    settings=Settings(minecraft_task_timeout_seconds=600).to_dict())
         output = directory / 'craft-validation'
         output.mkdir()
 

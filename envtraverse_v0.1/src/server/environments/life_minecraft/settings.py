@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class Settings:
-    minecraft_task_timeout: float = 1800.0
+    minecraft_task_timeout_seconds: float = 1800.0
     difficulty: str = "normal"
     hardcore: bool = False
     seed: int = 123456
@@ -21,7 +21,7 @@ class Settings:
 
     def __post_init__(self) -> None:
         for name, minimum, maximum in (
-            ("minecraft_task_timeout", 0, 7 * 24 * 3600),
+            ("minecraft_task_timeout_seconds", 0, 7 * 24 * 3600),
             ("startup_timeout_seconds", 0, 3600),
             ("capture_fps", 0, 60),
             ("record_fps", -1, 60),

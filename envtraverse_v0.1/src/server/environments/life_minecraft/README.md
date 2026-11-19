@@ -86,7 +86,7 @@ yourself in experiment configuration.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `minecraft_task_timeout` | `1800` | Task budget in seconds of wall time after readiness |
+| `minecraft_task_timeout_seconds` | `1800` | Task budget in seconds of wall time after readiness |
 | `difficulty` | `normal` | `peaceful`, `easy`, `normal`, or `hard` |
 | `hardcore` | `false` | Requires hard difficulty; normal death/respawn otherwise allowed |
 | `seed` | `123456` | Signed 64-bit world seed; recorded with the attempt |
@@ -99,7 +99,7 @@ yourself in experiment configuration.
 Frame rates are targets, not simulation steps. Minecraft normally simulates at
 20 ticks/second independently. Rendering/capture throughput depends on host load;
 the model reads frames at its own pace. Image preparation happens before the runtime starts. Game loading and any fallback
-asset installation do not consume `minecraft_task_timeout`.
+asset installation do not consume `minecraft_task_timeout_seconds`.
 
 **Timeout semantics:** the evaluator records a `timeout` event and permanently
 latches failure at the deadline. Minecraft, frame publication, recording, and

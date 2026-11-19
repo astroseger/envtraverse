@@ -39,8 +39,8 @@ def test_action_defaults_without_mutating_request():
 
 
 @pytest.mark.parametrize("settings", [
-    {"timeout": 1}, {"minecraft_task_timeout": 0}, {"minecraft_task_timeout": float("nan")},
-    {"minecraft_task_timeout": True}, {"record_fps": -0.5}, {"record_fps": 31},
+    {"timeout": 1}, {"minecraft_task_timeout_seconds": 0}, {"minecraft_task_timeout_seconds": float("nan")},
+    {"minecraft_task_timeout_seconds": True}, {"record_fps": -0.5}, {"record_fps": 31},
     {"capture_fps": 61}, {"capture_fps": 0.5, "record_fps": 0}, {"width": True},
     {"hardcore": True}, {"seed": "123"},
 ])
@@ -127,6 +127,6 @@ def test_protocol_roundtrip_and_public_description_are_pixel_only():
     files, terminal = decode_observation(encoded)
     assert files["binary.bin"] == b"abc" and terminal
     text = environment_description(get_task("craft_wooden_pickaxe"), Settings())
-    assert "latest_frame.jpg" in text and "minecraft_task_timeout" in text
+    assert "latest_frame.jpg" in text and "minecraft_task_timeout_seconds" in text
     assert "key_down" in text and "mouse_click" in text
     assert "telemetry/state.json" not in text

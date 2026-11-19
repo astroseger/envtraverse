@@ -128,7 +128,7 @@ def start(service, *, timeout=10):
     session_id, token = uuid4().hex, uuid4().hex
     workspace = prepare_workspace(service.run_root, session_id)
     response = service.dispatch(request("start", session_id, token, game_id=list_tasks()[0]["id"],
-                                        settings={"minecraft_task_timeout": timeout}))
+                                        settings={"minecraft_task_timeout_seconds": timeout}))
     return session_id, token, workspace, response
 
 

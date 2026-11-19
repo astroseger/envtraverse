@@ -72,7 +72,7 @@ def main(argv=None):
                 port = candidate.getsockname()[1]
             base = f"http://127.0.0.1:{port}"
             parameters = {"session_id": alias, "socket_path": ready["socket_path"],
-                          "minecraft_task_timeout": 8, "capture_fps": 30, "record_fps": 1}
+                          "minecraft_task_timeout_seconds": 8, "capture_fps": 30, "record_fps": 1}
             server = subprocess.Popen([sys.executable, str(server_source), "--environment", "life_minecraft",
                 "--game-id", "craft_wooden_pickaxe", "--game-alias", alias, "--port", str(port),
                 "--parameters", json.dumps(parameters)],

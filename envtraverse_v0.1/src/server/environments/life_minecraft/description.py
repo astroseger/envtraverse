@@ -22,7 +22,7 @@ the game's actual cursor. Image coordinates are {settings.width} by {settings.he
 with (0,0) at the top left. Minecraft continues running while you read, think, and
 between actions; reading a frame does not pause or advance a discrete game step.
 
-minecraft_task_timeout: {settings.minecraft_task_timeout:g} seconds of wall-clock time,
+minecraft_task_timeout_seconds: {settings.minecraft_task_timeout_seconds:g} seconds of wall-clock time,
 starting when the world and first image are ready. It includes your thinking time.
 When this deadline expires the task irreversibly fails. Minecraft and image updates
 continue, and your next action returns terminal status without applying that action.

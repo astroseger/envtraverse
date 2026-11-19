@@ -52,7 +52,7 @@ class MinecraftAnalysisTests(unittest.TestCase):
             "status": "running",
             "created_at": START - 5,
             "ready_at": START,
-            "settings": {"minecraft_task_timeout": 60},
+            "settings": {"minecraft_task_timeout_seconds": 60},
         }
         value.update(extra)
         return self.write_json(f"run_mc/sessions/{SESSION}/session.json", value)
