@@ -157,8 +157,10 @@ class TerminalBenchControllerTests(unittest.TestCase):
         self.host.mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.root / SCRIPT.name)
         (self.root / "src/controller").mkdir()
-        for name in ("src/controller/__init__.py", "src/controller/run_funs.py", "src/agent_api.py"):
-            shutil.copyfile(SCRIPT.parent / name, self.root / name)
+        # Keep the shared controller package intact as helpers gain dependencies.
+        for source in (SCRIPT.parent / "src/controller").glob("*.py"):
+            shutil.copyfile(source, self.root / "src/controller" / source.name)
+        shutil.copyfile(SCRIPT.parent / "src/agent_api.py", self.root / "src/agent_api.py")
         helper = self.root / "fake_processes.py"
         helper.write_text(FAKE_PROCESSES)
         for script, mode in (("setup.sh", "setup"), ("run.sh", "runtime")):

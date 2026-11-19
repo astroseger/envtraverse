@@ -15,6 +15,9 @@ environment_parameters:
   render_fps: 60
   record_fps: 1
   startup_timeout_seconds: 600
+mem_disk_mounts:
+  - mount: /latest_frame
+    size: 10mb
 server_mounts:
   - source: ./run_mc/socket
     target: /run/life-minecraft

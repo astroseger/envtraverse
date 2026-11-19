@@ -187,6 +187,26 @@ The earlier deadline closes the environment and stops any remaining agent, allow
 in-progress requests to finish. These timers do not enforce total task duration or
 poll for asynchronous completion; task outcomes remain environment-specific.
 
+## Shared RAM directories
+
+Optional top-level `mem_disk_mounts` creates separate size-limited Docker tmpfs
+volumes for each game, mounted read/write into its agent and environment server:
+
+```yaml
+mem_disk_mounts:
+  - mount: /latest_frame
+    size: 10mb
+```
+
+Sizes use binary units (`10mb` = 10 MiB); an integer specifies bytes.
+External runtimes can use the server's `ENVTRAVERSE_RESOURCES` JSON context
+(`session_id` and `mem_disk_mounts` entries with `mount`, `volume`, `size_bytes`);
+`server/runtime_resources.py` provides a reader/validator. Mount these volumes as
+externally owned resources. The controller retries removal after games stop and
+for up to two minutes at run shutdown, then reports any leftovers in `runner.log`.
+Their contents are temporary; keep recordings and results on persistent storage.
+Life Minecraft uses `/latest_frame/latest_frame.jpg` when this mount is configured.
+
 ## Choose a run root
 
 The **run root** is your experiment directory. It defaults to the directory

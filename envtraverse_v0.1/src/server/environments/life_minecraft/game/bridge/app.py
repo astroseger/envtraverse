@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .input import BUTTONS, KEYS, X11Input
 from .controls import InputController, InputEvents
+from .frames import AtomicFrameFile
 
 WIDTH, HEIGHT = int(os.getenv('WIDTH', '960')), int(os.getenv('HEIGHT', '540'))
 FPS = float(os.getenv('CAPTURE_FPS', '10'))
@@ -53,12 +54,16 @@ class Capture:
         self.sequence = 0
         self.time = 0.0
         self.error = None
+        self.frame_path = os.getenv('LATEST_FRAME_PATH') or None
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def run(self):
         import mss
         from PIL import Image
+        writer = None
         try:
+            if self.frame_path is not None:
+                writer = AtomicFrameFile(self.frame_path)
             # Composite the real X11 pointer into the canonical observation.
             # GLFW supplies a transparent cursor while the camera is grabbed.
             with mss.mss(with_cursor=True) as screen:
@@ -69,14 +74,23 @@ class Capture:
                     shot = screen.grab({'left': 0, 'top': 0, 'width': WIDTH, 'height': HEIGHT})
                     buffer = io.BytesIO()
                     Image.frombytes('RGB', shot.size, shot.rgb).save(buffer, format='JPEG', quality=85)
-                    with self.lock:
-                        self.frame = buffer.getvalue()
-                        self.sequence += 1
-                        self.time = time.time()
+                    self.publish(buffer.getvalue(), writer)
                     self.stop.wait(max(0, 1/FPS - (time.monotonic()-started)))
         except Exception as error:
             self.error = str(error)
             logging.exception('Capture stopped')
+        finally:
+            if writer is not None:
+                writer.close()
+
+    def publish(self, jpeg, writer=None):
+        # Disk publication must succeed before health or HTTP expose this frame.
+        if writer is not None:
+            writer.write(jpeg)
+        with self.lock:
+            self.frame = jpeg
+            self.sequence += 1
+            self.time = time.time()
 
     def latest(self):
         with self.lock:
@@ -125,7 +139,10 @@ def health():
         client = json.loads(Path('/run/client/status.json').read_text())
     except (OSError, ValueError):
         client = {'state': 'unknown'}
-    return {'capture_ready': sequence > 0 and time.time()-timestamp < 3,
+    ready = sequence > 0 and time.time()-timestamp < 3 and capture.error is None
+    return {'capture_ready': ready,
+            'latest_frame_path': capture.frame_path,
+            'latest_frame_ready': ready and capture.frame_path is not None,
             'width': WIDTH, 'height': HEIGHT, 'capture_fps': FPS,
             'frame_sequence': sequence, 'frame_time': timestamp,
             'capture_error': capture.error, 'client': client,
@@ -134,7 +151,7 @@ def health():
 
 def current_frame():
     frame, sequence, timestamp = capture.latest()
-    if frame is None or time.time()-timestamp > 3:
+    if capture.error is not None or frame is None or time.time()-timestamp > 3:
         raise HTTPException(503, 'No fresh frame available')
     return frame, sequence, timestamp
 

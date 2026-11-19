@@ -60,24 +60,16 @@ class JsonlTail:
 
 
 class FramePublisher:
-    """Pin the workspace inode and replace files without following agent links.
+    """Keep the live spectator image and record frames independently of delivery.
 
-    All path components below the trusted run root must be real directories.
-    Replacement uses the pinned directory descriptor, including if the agent
-    renames or replaces its workspace while a session is running.
+    Unless the client publishes directly into a RAM volume, also replace the
+    workspace image through a pinned directory descriptor without following links.
     """
-    def __init__(self, run_root: Path, session_id: str, directory: Path, record_fps: float):
-        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-        current = os.open(run_root, flags)
-        try:
-            for name in ("run", session_id, "run", "agent_run"):
-                child = os.open(name, flags, dir_fd=current)
-                os.close(current)
-                current = child
-            self.fd = current
-        except BaseException:
-            os.close(current)
-            raise
+    def __init__(self, run_root: Path, session_id: str, directory: Path, record_fps: float, *,
+                 publish_to_workspace: bool = True):
+        self.fd = None
+        if publish_to_workspace:
+            self.fd = self._open_workspace(run_root, session_id)
         self.directory = directory
         self.record_fps = record_fps
         self.frames = directory / "frames"
@@ -88,6 +80,20 @@ class FramePublisher:
         self.last_recorded = float("-inf")
         self.closed = False
 
+    @staticmethod
+    def _open_workspace(run_root: Path, session_id: str) -> int:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        current = os.open(run_root, flags)
+        try:
+            for name in ("run", session_id, "run", "agent_run"):
+                child = os.open(name, flags, dir_fd=current)
+                os.close(current)
+                current = child
+            return current
+        except BaseException:
+            os.close(current)
+            raise
+
     def publish(self, jpeg: bytes, sequence: int, captured_at: float, *, now: float | None = None) -> bool:
         now = time.monotonic() if now is None else now
         if not jpeg.startswith(b"\xff\xd8") or not jpeg.endswith(b"\xff\xd9"):
@@ -97,19 +103,20 @@ class FramePublisher:
                 return False
             if self.latest is not None and sequence == self.latest[1]:
                 return False
-            temporary = f".latest_frame.{uuid4().hex}.tmp"
-            try:
-                fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                             0o644, dir_fd=self.fd)
-                os.fchmod(fd, 0o644)
-                with os.fdopen(fd, "wb") as output:
-                    output.write(jpeg)
-                os.replace(temporary, "latest_frame.jpg", src_dir_fd=self.fd, dst_dir_fd=self.fd)
-            finally:
+            if self.fd is not None:
+                temporary = f".latest_frame.{uuid4().hex}.tmp"
                 try:
-                    os.unlink(temporary, dir_fd=self.fd)
-                except FileNotFoundError:
-                    pass
+                    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o644, dir_fd=self.fd)
+                    os.fchmod(fd, 0o644)
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(jpeg)
+                    os.replace(temporary, "latest_frame.jpg", src_dir_fd=self.fd, dst_dir_fd=self.fd)
+                finally:
+                    try:
+                        os.unlink(temporary, dir_fd=self.fd)
+                    except FileNotFoundError:
+                        pass
             self.latest = (jpeg, sequence, captured_at)
             if self.record_fps > 0 and now - self.last_recorded >= 1 / self.record_fps:
                 filename = f"{sequence:012d}.jpg"
@@ -127,4 +134,5 @@ class FramePublisher:
         with self.lock:
             if not self.closed:
                 self.closed = True
-                os.close(self.fd)
+                if self.fd is not None:
+                    os.close(self.fd)

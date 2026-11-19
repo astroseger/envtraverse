@@ -418,6 +418,72 @@ class SharedSchedulerTest(unittest.TestCase):
         self.assert_common_cleanup()
 
 
+    def test_ram_volumes_are_created_before_server_and_released_after_finalization(self):
+        events = []
+        manager = Mock()
+        resources = {"session_id": "alias-first", "mem_disk_mounts": []}
+        manager.create_game.side_effect = lambda alias, directory: events.append(("create", alias)) or resources
+        manager.release_game.side_effect = lambda alias: events.append(("release", alias))
+        manager.close.side_effect = lambda: events.append(("drain", None))
+        original_start = self.start_server.side_effect
+        def start(*args, **kwargs):
+            alias = args[4]
+            self.assertIn(("create", alias), events)
+            self.assertEqual(kwargs["resources"], resources)
+            return original_start(*args, **kwargs)
+        self.start_server.side_effect = start
+        def finalize(slot, game):
+            self.assert_pair_stopped(game.game)
+            events.append(("finalize", game.alias))
+        with patch.object(rf.mv, "MemVolumeManager", return_value=manager):
+            self.assertEqual(self.run_scheduler(finalize_game=finalize), 0)
+        for alias in self.mapping:
+            self.assertLess(events.index(("create", alias)), events.index(("finalize", alias)))
+            self.assertLess(events.index(("finalize", alias)), events.index(("release", alias)))
+        self.assertEqual(events[-1], ("drain", None))
+        self.assert_common_cleanup()
+
+    def test_ram_volume_creation_failure_is_cleaned_and_next_game_runs(self):
+        manager = Mock()
+        manager.create_game.side_effect = [RuntimeError("Docker creation failed"), {}, {}]
+        with patch.object(rf.mv, "MemVolumeManager", return_value=manager):
+            self.assertEqual(self.run_scheduler(), 1)
+        self.assertEqual([entry[3] for entry in self.launches], ["second", "third"])
+        manager.release_game.assert_any_call("alias-first")
+        manager.close.assert_called_once_with()
+        self.assert_common_cleanup()
+
+    def test_ram_volume_final_cleanup_runs_after_stops_even_if_finalization_fails(self):
+        manager = Mock()
+        manager.create_game.return_value = {}
+        self.finish_at.update(first=99, second=99)
+        self.proxy.process.poll.side_effect = [None, 31]
+        finalized = []
+        def finalize(slot, game):
+            self.assert_pair_stopped("first")
+            self.assert_pair_stopped("second")
+            finalized.append(game.game)
+            raise RuntimeError("Snapshot failed")
+        def close():
+            self.assertEqual(finalized, ["first", "second"])
+            self.assertIn(("container", self.names.proxy), self.cleanup_order)
+        manager.close.side_effect = close
+        with patch.object(rf.mv, "MemVolumeManager", return_value=manager), \
+                self.assertRaisesRegex(RuntimeError, "Snapshot failed"):
+            self.run_scheduler(("one", "two"), finalize_game=finalize)
+        manager.close.assert_called_once_with()
+        self.assert_common_cleanup()
+
+    def test_ram_volume_final_cleanup_failure_cannot_return_success(self):
+        manager = Mock()
+        manager.create_game.return_value = {}
+        manager.close.side_effect = RuntimeError("RAM volume cleanup timed out")
+        with patch.object(rf.mv, "MemVolumeManager", return_value=manager), \
+                self.assertRaisesRegex(RuntimeError, "RAM volume cleanup timed out"):
+            self.run_scheduler()
+        self.assert_common_cleanup()
+
+
 class ContainerStopTest(unittest.TestCase):
     def test_shutdown_waits_for_a_container_still_being_created(self):
         process = Mock(poll=Mock(return_value=None))

@@ -15,6 +15,7 @@ from .docker_backend import DockerBackend
 from .evaluator import TaskEvaluator
 from .protocol import RuntimeFault, observation
 from .recording import FramePublisher, JsonlLog, atomic_json
+from .resources import MEMORY_FRAME_PATH, WORKSPACE_FRAME_PATH, frame_volume, parse_resource_context
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,10 +23,14 @@ LOGGER = logging.getLogger(__name__)
 class Session:
     def __init__(self, *, session_id: str, owner_token: str, task: dict, settings,
                  run_root: Path, directory: Path, accept_eula: bool = False,
-                 backend_factory=DockerBackend, clock=time.monotonic, viewer_url: str | None = None):
+                 backend_factory=DockerBackend, clock=time.monotonic, viewer_url: str | None = None,
+                 resources: dict | None = None):
         self.session_id, self.owner_token = session_id, owner_token
         self.task, self.settings, self.directory = task, settings, directory
         self.clock, self.viewer_url = clock, viewer_url
+        self.resources = parse_resource_context(resources, session_id=session_id)
+        volume = frame_volume(self.resources)
+        self.latest_frame_path = MEMORY_FRAME_PATH if volume is not None else WORKSPACE_FRAME_PATH
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.startup_done = threading.Event()
@@ -40,9 +45,11 @@ class Session:
         self.threads = []
         self.events = JsonlLog(directory / "events.jsonl")
         self.actions = JsonlLog(directory / "actions.jsonl")
-        self.publisher = FramePublisher(run_root, session_id, directory, settings.record_fps)
+        self.publisher = FramePublisher(run_root, session_id, directory, settings.record_fps,
+                                        publish_to_workspace=volume is None)
         try:
-            self.backend = backend_factory(session_id, directory, settings, accept_eula=accept_eula)
+            backend_options = {"frame_volume": volume} if volume is not None else {}
+            self.backend = backend_factory(session_id, directory, settings, accept_eula=accept_eula, **backend_options)
         except BaseException:
             self.publisher.close()
             raise
@@ -50,7 +57,8 @@ class Session:
                          "catalog_schema_version": CATALOG_SCHEMA_VERSION,
                          "task_sha256": hashlib.sha256(json.dumps(task, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
                          "settings": settings.to_dict(), "created_at": time.time(),
-                         "viewer_url": viewer_url, "status": "starting"}
+                         "viewer_url": viewer_url, "status": "starting",
+                         "latest_frame_path": self.latest_frame_path, "resources": self.resources}
         atomic_json(directory / "session.json", self.metadata)
 
     def event(self, kind: str, **data):
@@ -97,7 +105,8 @@ class Session:
                 self.threads.append(thread)
                 thread.start()
             return {"session_id": self.session_id,
-                    "environment_description": environment_description(self.task, self.settings),
+                    "environment_description": environment_description(self.task, self.settings,
+                                                                       latest_frame_path=self.latest_frame_path),
                     "observation": observation({"ready.json": '{"ready":true}\n'})}
         except BaseException:
             with self.lock:

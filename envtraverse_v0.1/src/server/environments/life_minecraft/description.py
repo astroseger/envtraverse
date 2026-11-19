@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import Any
 from .actions import KEYS
 from .settings import Settings
+from .resources import WORKSPACE_FRAME_PATH
 
 
-def environment_description(task: dict[str, Any], settings: Settings) -> str:
+def environment_description(task: dict[str, Any], settings: Settings, *,
+                            latest_frame_path: str = WORKSPACE_FRAME_PATH) -> str:
     respawn = ("This is hardcore: death fails the task and normal respawning is unavailable."
                if settings.hardcore else "Death does not fail this task. Use Minecraft's Respawn button to continue.")
     return f'''You are playing Minecraft Java Edition in real time, in survival mode.
@@ -15,8 +17,7 @@ Difficulty: {settings.difficulty}. Each task starts in a fresh world.
 Task:
 {task["instruction"]}
 
-Read your current view from /home/user/run/agent_run/latest_frame.jpg (latest_frame.jpg
-relative to your initial working directory). The image is atomically replaced at a
+Read your current view from {latest_frame_path}. The image is atomically replaced at a
 target of {settings.capture_fps:g} FPS. Reopen the file for a new image; the image includes
 the game's actual cursor. Image coordinates are {settings.width} by {settings.height},
 with (0,0) at the top left. Minecraft continues running while you read, think, and
@@ -31,7 +32,7 @@ Success is detected automatically and likewise reported on your next action.
 Leaving the server or restarting the game invalidates the attempt. Do not disconnect.
 
 Send actions as JSON objects. Responses are small confirmation files; continue reading
-latest_frame.jpg to observe results. Supported keys: {", ".join(sorted(KEYS))}.
+{latest_frame_path} to observe results. Supported keys: {", ".join(sorted(KEYS))}.
 Mouse buttons: left, middle, right.
 
 - {{"id":"key_down","key":"w"}}: hold W until key_up, a timed press on W,

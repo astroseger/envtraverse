@@ -13,17 +13,31 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from .recording import JsonlTail, atomic_json
+from .resources import MEMORY_FRAME_MOUNT, MEMORY_FRAME_PATH
 
 
 class DockerBackend:
     def __init__(self, session_id: str, directory: Path, settings, *, accept_eula: bool = False,
-                 network_name: str | None = None):
+                 network_name: str | None = None, frame_volume: str | None = None):
         self.session_id, self.directory, self.settings = session_id, directory, settings
         self.accept_eula = accept_eula
         self.network_name = network_name
+        self.frame_volume = frame_volume
         self.server_host = "mc-server-" + session_id
         self.project = "life-minecraft-" + session_id
         self.compose = Path(__file__).resolve().parent / "game" / "compose.yaml"
+        self.compose_files = [self.compose]
+        if frame_volume is not None:
+            override = directory / "compose-memory.json"
+            atomic_json(override, {
+                "services": {"client": {
+                    "environment": {"LATEST_FRAME_PATH": MEMORY_FRAME_PATH},
+                    "volumes": [{"type": "volume", "source": "latest_frame", "target": MEMORY_FRAME_MOUNT,
+                                 "volume": {"nocopy": True}}],
+                }},
+                "volumes": {"latest_frame": {"external": True, "name": frame_volume}},
+            })
+            self.compose_files.append(override)
         self.token = uuid4().hex
         self.url = None
         self.cancelled = threading.Event()
@@ -52,7 +66,10 @@ class DockerBackend:
         self.log = directory / "docker.log"
 
     def command(self, *arguments: str, timeout: float = 120, capture: bool = False, cancellable: bool = False):
-        command = ["docker", "compose", "-f", str(self.compose), "-p", self.project, *arguments]
+        command = ["docker", "compose"]
+        for compose_file in self.compose_files:
+            command.extend(["-f", str(compose_file)])
+        command.extend(["-p", self.project, *arguments])
         if cancellable:
             # Docker's CLI launches the compose plugin as a child. Signal the
             # whole process group, then reap the CLI before issuing compose down.
@@ -156,7 +173,8 @@ class DockerBackend:
                     "network": self.network_name, "server_host": self.server_host,
                     "server_image": os.getenv("MC_SERVER_IMAGE_REFERENCE", os.getenv("MC_SERVER_IMAGE", "life-minecraft-server")),
                     "client_image": os.getenv("MC_CLIENT_IMAGE_REFERENCE", os.getenv("MC_CLIENT_IMAGE", "life-minecraft-client")),
-                    "containers": images})
+                    "containers": images, "frame_volume": self.frame_volume,
+                    "latest_frame_path": MEMORY_FRAME_PATH if self.frame_volume else None})
         last_error = None
         next_container_check = 0.0
         while not self.cancelled.is_set() and time.monotonic() < deadline:
@@ -165,12 +183,21 @@ class DockerBackend:
                 next_container_check = time.monotonic() + 2
             try:
                 health = json.loads(self.request("/health")[0])
+                if self.frame_volume is not None:
+                    if (health.get("latest_frame_path") != MEMORY_FRAME_PATH
+                            or "latest_frame_ready" not in health):
+                        raise RuntimeError("Minecraft client image does not support the configured RAM frame volume; "
+                                           "restart with run_controller_mc.py --rebuild-images")
+                    if health.get("capture_error"):
+                        raise RuntimeError("Minecraft frame publication failed: " + str(health["capture_error"]))
                 client = health.get("client", {})
                 if client.get("state") in {"exited", "error"}:
                     raise self.startup_failure("client", client.get("exit_code"))
                 state, events = self.read_state()
                 self.startup_events.extend(events)
-                if (health.get("capture_ready") and health.get("client", {}).get("state") == "running"
+                if (health.get("capture_ready")
+                        and (self.frame_volume is None or health.get("latest_frame_ready") is True)
+                        and health.get("client", {}).get("state") == "running"
                         and state.get("connected")
                         and state.get("server_running") and not state.get("telemetry_error")
                         and abs(time.time() - state.get("time_ms", 0) / 1000) < 5):

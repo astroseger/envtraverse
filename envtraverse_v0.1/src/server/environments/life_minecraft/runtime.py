@@ -26,6 +26,7 @@ from .session import Session
 from .settings import Settings
 from .images import pin_images
 from .network import RuntimeNetwork
+from .resources import parse_resource_context
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +85,8 @@ class RuntimeService:
         fields = {"version", "method", "session_id", "owner_token"}
         if method == "start":
             fields |= {"game_id", "settings"}
+            if "resources" in request:
+                fields.add("resources")
         elif method == "action":
             fields.add("action")
         elif method != "close":
@@ -95,7 +98,7 @@ class RuntimeService:
         if not isinstance(token, str) or len(token) != 32 or any(c not in "0123456789abcdef" for c in token):
             raise RuntimeFault("bad_request", "Invalid owner token")
         if method == "start":
-            return self.start(key, token, request["game_id"], request["settings"])
+            return self.start(key, token, request["game_id"], request["settings"], request.get("resources"))
         with self.lock:
             session = self.sessions.get(key)
             if session is None:
@@ -118,8 +121,9 @@ class RuntimeService:
         self.close_session(session)
         return {"closed": True}
 
-    def start(self, key: str, token: str, game_id: str, raw_settings: dict):
+    def start(self, key: str, token: str, game_id: str, raw_settings: dict, resources: dict | None = None):
         try:
+            resources = parse_resource_context(resources, session_id=key)
             settings = Settings.from_dict(raw_settings)
             task = get_task(game_id)
             if settings.difficulty == "peaceful" and task.get("requires_hostiles"):
@@ -157,7 +161,7 @@ class RuntimeService:
                     session = Session(session_id=key, owner_token=token, task=task, settings=settings,
                                       run_root=self.run_root, directory=directory, accept_eula=self.accept_eula,
                                       backend_factory=partial(self.backend_factory, network_name=self.network.name),
-                                      clock=self.clock, viewer_url=viewer)
+                                      clock=self.clock, viewer_url=viewer, resources=resources)
                 except Exception as error:
                     LOGGER.exception("Session preparation failed: %s", key)
                     atomic_json(directory / "result.json", {"session_id": key, "task_id": game_id,

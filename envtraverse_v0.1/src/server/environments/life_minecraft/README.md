@@ -77,7 +77,8 @@ bash src/server/environments/life_minecraft/host_runtime/run.sh \
 python3 run_controller.py --run-root /path/to/experiment
 ```
 
-The environment server mounts only `run_mc/socket` at `/run/life-minecraft`.
+The environment server mounts `run_mc/socket` at `/run/life-minecraft`, alongside
+any configured shared RAM directories.
 Its adapter talks to `/run/life-minecraft/runtime.sock`; Docker stays on the host.
 The controller assigns a private UUID to each attempt. Do not set `session_id`
 yourself in experiment configuration.
@@ -125,16 +126,21 @@ separately from ordinary task failure.
 ## Agent interface
 
 The generated environment description contains the task text, time budget, and
-control reference. The current image is always at:
+control reference and the current image path. The example config uses:
 
-```text
-/home/user/run/agent_run/latest_frame.jpg
+```yaml
+mem_disk_mounts:
+  - mount: /latest_frame
+    size: 10mb
 ```
 
-The host writes a complete temporary JPEG alongside that file, then replaces it
-with `os.replace`. Concurrent readers see a complete old or new image. The real
-inventory/menu cursor is included in the pixels. The image and its temporary
-files are ignored by the agent's workspace Git snapshots.
+The graphical client atomically replaces `/latest_frame/latest_frame.jpg` directly
+in this shared RAM volume. Without that mount, the host publishes to
+`/home/user/run/agent_run/latest_frame.jpg`. Reopen the file to read each new image;
+concurrent readers see a complete old or new JPEG, including the inventory cursor.
+Spectator images and persistent recordings use the same captured JPEGs in either
+mode. Rebuild an older client once with `--rebuild-images` to enable RAM publication;
+the existing dependency and Minecraft asset layers are reused.
 
 Actions return a small `action.json` acknowledgement, not a screenshot. The
 response does not wait for a key hold to finish. State-changing requests must
@@ -164,7 +170,7 @@ first relative movement may be discarded by the vanilla client.
 ## Observe and review a run
 
 Open the spectator URL printed by the launcher, or read `run_mc/runtime.json`.
-The viewer lists sessions and serves the same canonical JPEGs as the workspace.
+The viewer lists sessions and serves the same canonical JPEGs as the agent image file.
 It has no control endpoint and does not send key releases. The viewer binds to
 loopback by default; use SSH forwarding to view a remote runtime.
 

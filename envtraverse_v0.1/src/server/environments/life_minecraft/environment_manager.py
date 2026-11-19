@@ -12,6 +12,7 @@ from .catalog import get_task
 from .compat import EnvironmentError, EnvironmentStartError, FatalEnvironmentError, InvalidActionError, Observation, StartResult
 from .protocol import RuntimeClient, RuntimeFault, decode_observation
 from .settings import Settings
+from .resources import read_resource_context
 
 
 def _session_key(value: Any) -> str:
@@ -45,6 +46,7 @@ class EnvironmentManager:
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("request_timeout_seconds must be a positive finite number")
         self.session_id = _session_key(parameters.get("session_id", uuid4().hex))
+        self.resources = read_resource_context(session_id=self.session_id)
         self._owner_token = uuid4().hex
         self.client = RuntimeClient(path, timeout=timeout)
         self._used = self._started = self._start_sent = self._stopped = self._terminal = False
@@ -61,7 +63,8 @@ class EnvironmentManager:
             if task["requires_hostiles"] and self.settings.difficulty == "peaceful":
                 raise RuntimeFault("invalid_settings", "This task requires hostile mobs; choose easy, normal or hard")
             self._start_sent = True
-            raw = self._call("start", game_id=game_id, settings=self.settings.to_dict())
+            resources = {"resources": self.resources} if self.resources else {}
+            raw = self._call("start", game_id=game_id, settings=self.settings.to_dict(), **resources)
             if raw.get("session_id") != self.session_id:
                 raise ValueError("Runtime returned a different session ID")
             description = raw["environment_description"]

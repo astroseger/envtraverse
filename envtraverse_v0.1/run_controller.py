@@ -11,6 +11,7 @@ from typing import cast
 
 from src.controller import run_backends as backends
 from src.controller import run_funs as rf
+from src.controller import mem_volumes as mv
 
 
 LEGACY_AGENT_PARAMETERS = (
@@ -38,6 +39,7 @@ class RunConfig:
     paths: rf.RunPaths = field(default_factory=rf.RunPaths)
     server_inactivity_timeout_seconds: float | None = None
     server_terminal_grace_seconds: float | None = None
+    mem_disk_mounts: tuple[mv.MemDiskMount, ...] = ()
 
     @property
     def agent_parameters(self) -> dict[str, object]:
@@ -119,6 +121,9 @@ def parse_run_config(path: Path, *, paths: rf.RunPaths | None = None) -> RunConf
         server_inactivity_timeout_seconds=rf.parse_optional_seconds(loaded, path, "server_inactivity_timeout_seconds"),
         server_terminal_grace_seconds=rf.parse_optional_seconds(loaded, path, "server_terminal_grace_seconds"),
     )
+    config = replace(config, mem_disk_mounts=mv.parse_mem_disk_mounts(
+        loaded, path, existing=[mount.target for mount in config.environment.mounts],
+    ))
     backends.create_backend(config).validate()
     return config
 
@@ -126,26 +131,27 @@ def parse_run_config(path: Path, *, paths: rf.RunPaths | None = None) -> RunConf
 def docker_agent_command(slot: str, container_name: str, network_name: str,
                          server_container_name: str, proxy_container_name: str,
                          preparation: rf.LaunchPreparation, *, agent_image: str,
-                         backend: backends.RunBackend) -> list[str]:
+                         backend: backends.RunBackend, resources: dict | None = None) -> list[str]:
     return [
         "docker", "run", "--rm", "--pull=never", "--name", container_name,
         *rf.agent_memory_args(backend.config.runner),
         *backend.authentication_args(slot),
         "--network", network_name,
         *rf.proxy_env_args(proxy_container_name, server_container_name),
-        *rf.agent_launch_args(preparation), agent_image, *preparation.command,
+        *rf.agent_launch_args(preparation), *mv.volume_mount_args(resources), agent_image, *preparation.command,
     ]
 
 
 def start_agent(slot: str, game_alias: str, real_game: str, container_name: str,
                 network_name: str, server_container_name: str, proxy_container_name: str,
                 preparation: rf.LaunchPreparation, *, agent_image: str,
-                backend: backends.RunBackend, check_cancelled) -> rf.RunningContainer:
+                backend: backends.RunBackend, check_cancelled, resources: dict | None = None) -> rf.RunningContainer:
     check_cancelled()
     backend.prepare_game(slot, game_alias, real_game, container_name, agent_image)
     check_cancelled()
     command = docker_agent_command(slot, container_name, network_name, server_container_name,
-                                   proxy_container_name, preparation, agent_image=agent_image, backend=backend)
+                                   proxy_container_name, preparation, agent_image=agent_image, backend=backend,
+                                   resources=resources)
     rf.log_info("starting game %s as alias %s with backend %s in slot %s; container: %s",
                 real_game, game_alias, backend.config.backend, slot, container_name)
     if backend.log_command:
@@ -169,10 +175,12 @@ def run_scheduler(config: RunConfig, container_names: rf.ContainerNames,
             config.agent_parameters, initial_files_dir=rf.initial_workspace_files(config.environment.name),
         )
         check_cancelled()
+        mv.validate_mount_targets(config.mem_disk_mounts, [mount.target for mount in preparation.mounts])
+        resource_args = {"resources": mv.resource_context(config.mem_disk_mounts, game_alias)} if config.mem_disk_mounts else {}
         return start_agent(
             slot, game_alias, real_game, container_names.agents[real_game],
             container_names.internal_network, container_names.servers[real_game], container_names.proxy,
-            preparation, agent_image=images.agent, backend=backend, check_cancelled=check_cancelled,
+            preparation, agent_image=images.agent, backend=backend, check_cancelled=check_cancelled, **resource_args,
         )
 
     return rf.run_scheduler(
@@ -181,6 +189,7 @@ def run_scheduler(config: RunConfig, container_names: rf.ContainerNames,
         finalize_game=lambda slot, game: backend.finalize_game(slot, game, images.agent), paths=config.paths,
         server_inactivity_timeout_seconds=config.server_inactivity_timeout_seconds,
         server_terminal_grace_seconds=config.server_terminal_grace_seconds,
+        **({"mem_disk_mounts": config.mem_disk_mounts} if config.mem_disk_mounts else {}),
     )
 
 

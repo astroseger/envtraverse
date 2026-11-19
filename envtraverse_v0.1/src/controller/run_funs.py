@@ -26,6 +26,7 @@ from uuid import uuid4
 import yaml
 
 from src.agent_api import LaunchPreparation
+from . import mem_volumes as mv
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +40,7 @@ SERVER_PORT = 8879
 SERVER_START_TIMEOUT_SECONDS = 1800.0
 PROXY_PORT = 3128
 LOGGER = logging.getLogger("arc-runner")
-SERVER_MANAGED_VARIABLES = frozenset({"ENV_SERVER_HOST", "ENV_SERVER_PORT"})
+SERVER_MANAGED_VARIABLES = frozenset({"ENV_SERVER_HOST", "ENV_SERVER_PORT", mv.RESOURCE_ENVIRONMENT_VARIABLE})
 
 
 @dataclass(frozen=True)
@@ -834,6 +835,7 @@ def docker_server_command(
     paths: RunPaths | None = None,
     server_inactivity_timeout_seconds: float | None = None,
     server_terminal_grace_seconds: float | None = None,
+    resources: dict | None = None,
 ) -> list[str]:
     paths = paths or RunPaths()
     command = [
@@ -852,6 +854,10 @@ def docker_server_command(
 
     for mount in environment.mounts:
         command.extend(["--mount", f"type=bind,src={mount.source},dst={mount.target}"])
+
+    if resources:
+        command.extend(mv.volume_mount_args(resources))
+        command.extend(["-e", mv.RESOURCE_ENVIRONMENT_VARIABLE + "=" + json.dumps(resources)])
 
     parameters = dict(environment.parameters)
     if environment.name in {"terminal_bench", "life_minecraft"}:
@@ -884,13 +890,14 @@ def start_server(
     paths: RunPaths | None = None,
     server_inactivity_timeout_seconds: float | None = None,
     server_terminal_grace_seconds: float | None = None,
+    resources: dict | None = None,
 ) -> RunningContainer:
     paths = paths or RunPaths()
     verify_environment_variables(environment)
     command = docker_server_command(
         container_name, internet_network, internal_network, environment, game_alias, game_id, image=image, paths=paths,
         server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
-        server_terminal_grace_seconds=server_terminal_grace_seconds,
+        server_terminal_grace_seconds=server_terminal_grace_seconds, resources=resources,
     )
     log_info(
         "starting %s server for game %s as alias %s; container: %s",
@@ -1012,6 +1019,7 @@ def run_scheduler(
     paths: RunPaths | None = None,
     server_inactivity_timeout_seconds: float | None = None,
     server_terminal_grace_seconds: float | None = None,
+    mem_disk_mounts: Sequence[mv.MemDiskMount] = (),
 ) -> int:
     """Run one agent/server pair per slot; a game failure releases only its slot.
 
@@ -1043,6 +1051,7 @@ def run_scheduler(
     pending_games = deque(game_id_mapping.items())
     running: dict[str, RunningGame] = {}
     proxy: RunningContainer | None = None
+    volumes = mv.MemVolumeManager(mem_disk_mounts, log_info)
     stopping = False
     failed = False
 
@@ -1064,6 +1073,7 @@ def run_scheduler(
         cleanup.callback(remove_network, container_names.internal_network)
         create_network(container_names.internet_network)
         cleanup.callback(remove_network, container_names.internet_network)
+        cleanup.callback(volumes.close)
         cleanup.callback(lambda: stop_all(running, proxy, finalize_game=finalize_game))
 
         if stopping:
@@ -1087,12 +1097,15 @@ def run_scheduler(
                 alias, game = pending_games.popleft()
                 server_name = container_names.servers[game]
                 try:
-                    prepare_game_directory(alias, paths=paths)
+                    game_directory = prepare_game_directory(alias, paths=paths)
+                    resources = volumes.create_game(alias, game_directory)
+                    raise_if_stopping()
                     server = start_server(
                         server_name, container_names.internet_network, container_names.internal_network,
                         environment, alias, game, image=images.server, paths=paths,
                         server_inactivity_timeout_seconds=server_inactivity_timeout_seconds,
                         server_terminal_grace_seconds=server_terminal_grace_seconds,
+                        **({"resources": resources} if resources else {}),
                     )
                     running[slot] = RunningGame(
                         game, alias, server, time.monotonic() + SERVER_START_TIMEOUT_SECONDS,
@@ -1101,6 +1114,7 @@ def run_scheduler(
                     LOGGER.exception("could not start server for game %s as alias %s", game, alias)
                     log_info("could not start server for game %s as alias %s; see runner.log", game, alias)
                     failed = True
+                    volumes.release_game(alias)
 
             for slot, game in list(running.items()):
                 if stopping:
@@ -1147,8 +1161,11 @@ def run_scheduler(
 
                 stop_game(game)
                 del running[slot]
-                if finalize_game is not None:
-                    finalize_game(slot, game)
+                try:
+                    if finalize_game is not None:
+                        finalize_game(slot, game)
+                finally:
+                    volumes.release_game(game.alias)
 
             if stopping:
                 break
