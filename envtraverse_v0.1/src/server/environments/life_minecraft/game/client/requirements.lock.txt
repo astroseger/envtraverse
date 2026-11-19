@@ -1,0 +1,20 @@
+# Exact dependencies from the validated Python 3.10 client image.
+# Update intentionally together with bridge/requirements.txt and the image.
+annotated-types==0.8.0
+anyio==4.16.0
+click==8.5.1
+exceptiongroup==1.3.1
+fastapi==0.115.12
+h11==0.16.0
+idna==3.20
+mss==10.0.0
+pillow==11.2.1
+portablemc==5.0.6
+pydantic==2.14.3
+pydantic_core==2.50.4
+python-xlib==0.33
+six==1.17.0
+starlette==0.46.2
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+uvicorn==0.34.3

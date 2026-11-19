@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "lifemc_observer",
+  "version": "0.1.0",
+  "name": "LifeMC server observer",
+  "description": "Server-only, read-only evaluation telemetry for real-time visual agents.",
+  "environment": "server",
+  "entrypoints": {"main": ["io.lifemc.observer.ObserverMod"]},
+  "mixins": ["lifemc-observer.mixins.json"],
+  "depends": {"fabricloader": ">=0.16.10", "minecraft": "1.21.1", "java": ">=21", "fabric-api": "*"}
+}

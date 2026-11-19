@@ -1,0 +1,4 @@
+# Continuously published observations must not enter workspace snapshots.
+/latest_frame.jpg
+/latest_frame.json
+/.latest_frame*

@@ -1,0 +1,63 @@
+services:
+  server:
+    image: ${MC_SERVER_IMAGE:-life-minecraft-server}
+    build: ./server
+    environment:
+      EULA: ${EULA:-false}
+      DIFFICULTY: ${DIFFICULTY:-normal}
+      HARDCORE: ${HARDCORE:-false}
+      SEED: ${SEED:-123456}
+      ONLINE_MODE: 'false'
+      PLAYER_NAME: ${PLAYER_NAME:-AgentPlayer}
+      RUN_ID: ${RUN_ID:-local}
+    volumes:
+      - world:/data
+      - ${TELEMETRY_DIR:?Set TELEMETRY_DIR}:/telemetry
+    networks: [game, downloads]
+    stop_grace_period: 60s
+    stdin_open: true
+    restart: 'no'
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import json,time,socket; s=json.load(open('/telemetry/state.json')); assert s['server_running'] and time.time()-s['time_ms']/1000 < 5; socket.create_connection(('127.0.0.1',25565),2).close()"
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 30s
+  client:
+    image: ${MC_CLIENT_IMAGE:-life-minecraft-client}
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      PLAYER_NAME: ${PLAYER_NAME:-AgentPlayer}
+      AUTH_MODE: offline
+      WIDTH: ${WIDTH:-960}
+      HEIGHT: ${HEIGHT:-540}
+      CAPTURE_FPS: ${CAPTURE_FPS:-30}
+      RENDER_FPS: ${RENDER_FPS:-60}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-}
+      INPUT_EVENTS_PATH: /input-events/events.jsonl
+      SERVER_HOST: server
+      SERVER_PORT: '25565'
+    volumes:
+      - client:/data/client
+      - ${INPUT_EVENTS_DIR:?Set INPUT_EVENTS_DIR}:/input-events
+    ports: ['127.0.0.1::8000']
+    networks: [game, downloads]
+    shm_size: 512m
+    stop_grace_period: 20s
+    restart: 'no'
+networks:
+  game:
+    internal: true
+  downloads: {}
+volumes:
+  world: {}
+  client: {}

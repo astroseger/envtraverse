@@ -1,0 +1,5 @@
+fastapi==0.115.12
+uvicorn==0.34.3
+mss==10.0.0
+Pillow==11.2.1
+python-xlib==0.33
