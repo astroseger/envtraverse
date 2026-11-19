@@ -136,7 +136,10 @@ def prepare_run(run_dir, server_url, game_alias, parsed_run_config, initial_file
             images = rf.RunImages.create()
             names = rf.build_container_names(settings["games"])
 
-            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images, paths, finalize_game):
+            def schedule(_environment, _names, _mapping, *, slots, launch_agent, images, paths, finalize_game,
+                         server_inactivity_timeout_seconds, server_terminal_grace_seconds):
+                self.assertIsNone(server_inactivity_timeout_seconds)
+                self.assertIsNone(server_terminal_grace_seconds)
                 return launch_agent(slots[0], "public-alias", "private-game", lambda: None).process.poll()
 
             for backend_name in BACKENDS:

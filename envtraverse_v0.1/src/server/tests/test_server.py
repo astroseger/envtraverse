@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from pathlib import Path
 import sys
 import threading
@@ -180,7 +181,342 @@ class ServerTest(unittest.TestCase):
         self.assertIsNotNone(captured.records[0].exc_info)
 
 
+class ServerInactivityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now = 0.0
+        self.enterContext(patch.object(server.time, "monotonic", side_effect=lambda: self.now))
+        self.manager = EnvironmentManager()
+        self.game = server.GameServer(
+            self.manager, game_id="counter", game_alias="alias", inactivity_timeout_seconds=10,
+        )
+        self.addCleanup(self.game.stop)
+        self.client = server.create_app(self.game).test_client()
+        payload = self.client.post("/game/start", json={"game_id": "alias"}).get_json()
+        self.headers = {"X-Session-Token": payload["session"]["token"]}
+
+    def test_reads_and_rejected_requests_do_not_renew_idle_time(self) -> None:
+        for at, path in ((2, "/health"), (4, "/game/last-step"), (6, "/game/environment-description")):
+            self.now = at
+            self.assertEqual(self.client.get(path, headers=self.headers).status_code, 200)
+        self.now = 8
+        self.assertEqual(self.client.post(
+            "/game/action", json={"action": {"id": "UNKNOWN"}}, headers=self.headers,
+        ).status_code, 400)
+        self.now = 9
+        self.assertEqual(self.client.post(
+            "/game/action", json={"action": {"id": "INC"}},
+        ).status_code, 400)
+        self.now = 10
+        # A request arriving at the deadline cannot revive an expired server.
+        self.assertEqual(self.client.post(
+            "/game/action", json={"action": {"id": "INC"}}, headers=self.headers,
+        ).status_code, 503)
+        self.assertEqual(self.manager.value, 0)
+        self.assertFalse(self.game.failed)
+
+    def test_moves_renew_idle_time_and_guard_remains_active_after_terminal(self) -> None:
+        self.now = 9
+        for _ in range(3):
+            response = self.client.post(
+                "/game/action", json={"action": {"id": "INC"}}, headers=self.headers,
+            )
+            self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["session"]["terminal"])
+        self.now = 18
+        self.assertEqual(self.client.get("/game/last-step", headers=self.headers).status_code, 200)
+        self.now = 19
+        self.assertEqual(self.client.get("/health").status_code, 503)
+
+    def test_omitted_timeout_keeps_idle_server_available(self) -> None:
+        game = server.GameServer(EnvironmentManager(), game_id="counter", game_alias="alias")
+        self.addCleanup(game.stop)
+        client = server.create_app(game).test_client()
+        self.now = 10 * 3600
+        self.assertEqual(client.post("/game/start", json={"game_id": "alias"}).status_code, 200)
+        self.now += 10 * 3600
+        self.assertEqual(client.get("/health").status_code, 200)
+
+    def test_cli_rejects_nonpositive_or_nonfinite_timeout(self) -> None:
+        for option in ("--inactivity-timeout-seconds", "--terminal-grace-seconds"):
+            for value in ("0", "-1", "nan", "inf", "-inf", "invalid"):
+                with self.subTest(option=option, value=value), patch("sys.stderr", new_callable=io.StringIO):
+                    with self.assertRaises(SystemExit) as raised:
+                        server.build_parser().parse_args([
+                            "--environment", "example", "--game-id", "counter", "--game-alias", "alias",
+                            option + "=" + value,
+                        ])
+                    self.assertEqual(raised.exception.code, 2)
+
+
+class ServerTerminalGraceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now = 0.0
+        self.manager = Mock()
+        self.manager.start_environment.return_value = StartResult("Rules", Observation({}))
+        self.manager.move.return_value = Observation({"state.txt": "done"}, terminal=True)
+
+    def run_server(self, requests, *, grace=600, inactivity=None):
+        http = MagicMock()
+        http.__enter__.return_value = http
+        request_index = 0
+
+        def handle_request():
+            nonlocal request_index
+            self.manager.stop.assert_not_called()
+            if request_index < len(requests):
+                operation = requests[request_index]
+                request_index += 1
+                operation(make_server.call_args.args[2].test_client())
+            else:
+                self.assertLessEqual(http.handle_request.call_count, len(requests) + 2,
+                                     "Server did not stop at its deadline")
+                self.assertIsNotNone(http.timeout, "Server must wake without further requests")
+                self.assertGreater(http.timeout, 0)
+                self.now += http.timeout
+            # Model the point where the HTTP response has finished sending.
+            self.manager.stop.assert_not_called()
+
+        http.handle_request.side_effect = handle_request
+        args = ["--environment", "example", "--game-id", "counter", "--game-alias", "alias"]
+        if grace is not None:
+            args.extend(["--terminal-grace-seconds", str(grace)])
+        if inactivity is not None:
+            args.extend(["--inactivity-timeout-seconds", str(inactivity)])
+        with (
+            patch.object(server.time, "monotonic", side_effect=lambda: self.now),
+            patch.object(server, "load_environment_manager", return_value=Mock(return_value=self.manager)),
+            patch.object(server, "setup_logging"),
+            patch.object(server, "make_server", return_value=http) as make_server,
+            self.assertLogs(server.LOGGER, level="INFO") as logs,
+        ):
+            code = server.main(args)
+        self.assertEqual(request_index, len(requests))
+        self.manager.stop.assert_called_once_with()
+        self.assertFalse(make_server.call_args.kwargs["threaded"])
+        http.__exit__.assert_called_once()
+        return code, http, "\n".join(logs.output)
+
+    def test_terminal_start_or_move_gets_full_grace_after_response_and_reads_do_not_extend_it(self) -> None:
+        for terminal_on_start in (True, False):
+            with self.subTest(terminal_on_start=terminal_on_start):
+                self.now = 0.0
+                self.manager.reset_mock()
+                headers = {}
+                terminal_payload = None
+                response_finished_at = None
+
+                def start_environment(_game_id):
+                    self.now += 10 * 3600
+                    return StartResult("Rules", Observation({}, terminal=terminal_on_start))
+
+                def move(_action):
+                    self.now += 10 * 3600
+                    return Observation({"state.txt": "done"}, terminal=True)
+
+                self.manager.start_environment.side_effect = start_environment
+                self.manager.move.side_effect = move
+
+                def finish_terminal_response(payload):
+                    nonlocal terminal_payload, response_finished_at
+                    terminal_payload = payload
+                    # Even a long final-response transfer precedes the grace period.
+                    self.now += 3600
+                    response_finished_at = self.now
+
+                def start(client):
+                    response = client.post("/game/start", json={"game_id": "alias"})
+                    self.assertEqual(response.status_code, 200)
+                    payload = response.get_json()
+                    headers["X-Session-Token"] = payload["session"]["token"]
+                    if terminal_on_start:
+                        finish_terminal_response(payload)
+
+                def terminal_move(client):
+                    response = client.post("/game/action", json={"action": {"id": "INC"}}, headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    finish_terminal_response(response.get_json())
+
+                def confirmations(client):
+                    self.now += 599
+                    response = client.get("/game/last-step", headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.get_json(), terminal_payload)
+                    self.assertTrue(response.get_json()["session"]["terminal"])
+                    self.assertEqual(client.get("/game/environment-description", headers=headers).status_code, 200)
+                    self.assertEqual(client.get("/health").status_code, 200)
+                    rejected = client.post("/game/action", json={"action": {"id": "INC"}}, headers=headers)
+                    self.assertEqual(rejected.status_code, 400)
+
+                requests = [start, confirmations] if terminal_on_start else [start, terminal_move, confirmations]
+                code, _http, logs = self.run_server(requests)
+                self.assertEqual(code, 0)
+                self.assertEqual(self.now, response_finished_at + 600)
+                self.assertEqual(self.manager.move.call_count, 0 if terminal_on_start else 1)
+                self.assertEqual(logs.count("terminal grace period started"), 1)
+                self.assertIn("server terminal grace period expired", logs)
+
+    def test_request_in_progress_finishes_before_terminal_shutdown(self) -> None:
+        self.manager.start_environment.return_value = StartResult("Rules", Observation({}, terminal=True))
+        headers = {}
+
+        def start(client):
+            payload = client.post("/game/start", json={"game_id": "alias"}).get_json()
+            headers["X-Session-Token"] = payload["session"]["token"]
+
+        def slow_response(client):
+            self.now = 599
+            response = client.get("/game/last-step", headers=headers)
+            self.now += 2
+            self.manager.stop.assert_not_called()
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.get_json()["session"]["terminal"])
+
+        code, http, _logs = self.run_server([start, slow_response])
+        self.assertEqual(code, 0)
+        self.assertEqual(http.handle_request.call_count, 2)
+        self.assertEqual(self.now, 601)
+
+    def test_earlier_deadline_wins_and_omitted_grace_preserves_inactivity_guard(self) -> None:
+        self.manager.start_environment.return_value = StartResult("Rules", Observation({}, terminal=True))
+        for inactivity, grace, expected, reason in (
+            (1800, 600, 600, "terminal grace period expired"),
+            (300, 600, 300, "inactivity timeout"),
+            (300, None, 300, "inactivity timeout"),
+        ):
+            with self.subTest(inactivity=inactivity, grace=grace):
+                self.now = 0.0
+                self.manager.reset_mock()
+
+                def start(client):
+                    self.assertEqual(client.post("/game/start", json={"game_id": "alias"}).status_code, 200)
+
+                def health(client):
+                    self.now = expected - 0.5
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+                code, _http, logs = self.run_server([start, health], grace=grace, inactivity=inactivity)
+                self.assertEqual(code, 0)
+                self.assertEqual(self.now, expected)
+                self.assertIn(reason, logs)
+
+    def test_grace_does_not_expire_without_a_terminal_observation(self) -> None:
+        def start(client):
+            self.assertEqual(client.post("/game/start", json={"game_id": "alias"}).status_code, 200)
+
+        def still_running(client):
+            self.now += 10 * 3600
+            self.assertEqual(client.get("/health").status_code, 200)
+
+        def end_test(_client):
+            raise KeyboardInterrupt
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_server([start, still_running, end_test])
+        self.manager.stop.assert_called_once_with()
+
+
 class ServerLifecycleTest(unittest.TestCase):
+    def test_slow_initialization_and_move_each_get_a_full_idle_window_afterward(self) -> None:
+        now = 0.0
+        timeout = 2 * 3600
+        duration = 10 * 3600
+        calls = []
+
+        class SlowManager(EnvironmentManager):
+            def start_environment(self, game_id):
+                nonlocal now
+                calls.append(("start", threading.get_ident()))
+                now += duration
+                return super().start_environment(game_id)
+
+            def move(self, action):
+                nonlocal now
+                calls.append(("move", threading.get_ident()))
+                now += duration
+                return super().move(action)
+
+            def stop(self):
+                calls.append(("stop", threading.get_ident()))
+                super().stop()
+
+        http = MagicMock()
+        http.__enter__.return_value = http
+        request_index = 0
+        headers = {}
+
+        def handle_request():
+            nonlocal now, request_index, headers
+            self.assertNotIn("stop", [name for name, _ in calls])
+            client = make_server.call_args.args[2].test_client()
+            if request_index == 0:
+                response = client.post("/game/start", json={"game_id": "alias"})
+                self.assertEqual(response.status_code, 200)
+                headers = {"X-Session-Token": response.get_json()["session"]["token"]}
+            elif request_index == 1:
+                now += timeout - 1
+                response = client.post("/game/action", json={"action": {"id": "INC"}}, headers=headers)
+                self.assertEqual(response.status_code, 200)
+            elif request_index == 2:
+                now += timeout - 1
+                self.assertEqual(client.get("/health").status_code, 200)
+            elif request_index == 3:
+                # No new request: the HTTP wait wakes up when idle time runs out.
+                self.assertEqual(http.timeout, 1)
+                now += http.timeout
+            else:
+                self.fail("Server did not stop after the idle deadline")
+            request_index += 1
+
+        http.handle_request.side_effect = handle_request
+        with (
+            patch.object(server.time, "monotonic", side_effect=lambda: now),
+            patch.object(server, "load_environment_manager", return_value=SlowManager),
+            patch.object(server, "setup_logging"),
+            patch.object(server, "make_server", return_value=http) as make_server,
+        ):
+            self.assertEqual(server.main([
+                "--environment", "example", "--game-id", "counter", "--game-alias", "alias",
+                "--inactivity-timeout-seconds", str(timeout),
+            ]), 0)
+        self.assertEqual(request_index, 4)
+        self.assertEqual([name for name, _ in calls], ["start", "move", "stop"])
+        self.assertEqual({ident for _, ident in calls}, {threading.get_ident()})
+        self.assertFalse(make_server.call_args.kwargs["threaded"])
+        http.__exit__.assert_called_once()
+
+    def test_idle_timeout_cleans_up_without_a_start_request_and_preserves_cleanup_errors(self) -> None:
+        for cleanup_fails in (False, True):
+            with self.subTest(cleanup_fails=cleanup_fails):
+                now = 0.0
+                manager = Mock()
+                if cleanup_fails:
+                    manager.stop.side_effect = RuntimeError("Cleanup failed")
+                http = MagicMock()
+                http.__enter__.return_value = http
+
+                def handle_request():
+                    nonlocal now
+                    self.assertEqual(http.timeout, 0.5)
+                    now += http.timeout
+
+                http.handle_request.side_effect = handle_request
+                with (
+                    patch.object(server.time, "monotonic", side_effect=lambda: now),
+                    patch.object(server, "load_environment_manager", return_value=Mock(return_value=manager)),
+                    patch.object(server, "setup_logging"),
+                    patch.object(server, "make_server", return_value=http),
+                    self.assertLogs(server.LOGGER, level="INFO") as logs,
+                ):
+                    code = server.main([
+                        "--environment", "example", "--game-id", "counter", "--game-alias", "alias",
+                        "--inactivity-timeout-seconds", "0.5",
+                    ])
+                self.assertEqual(code, int(cleanup_fails))
+                manager.stop.assert_called_once_with()
+                manager.start_environment.assert_not_called()
+                http.handle_request.assert_called_once_with()
+                self.assertIn("server inactivity timeout", "\n".join(logs.output))
+
     def test_main_initializes_moves_and_stops_on_one_thread(self) -> None:
         for fatal in (False, True):
             with self.subTest(fatal=fatal):

@@ -150,6 +150,41 @@ class RunConfigurationTest(unittest.TestCase):
         self.assertEqual(config.environment, rf.EnvironmentConfig("example", {}, []))
         self.assertEqual(config.max_parallel_games, "all")
 
+    def test_server_timeouts_default_to_disabled_and_accept_seconds_or_null(self) -> None:
+        for key in ("server_inactivity_timeout_seconds", "server_terminal_grace_seconds"):
+            for settings in ({}, {key: None}, {key: 600}, {key: 0.5}):
+                self.write_config(**settings)
+                for controller in CONTROLLERS:
+                    with self.subTest(controller=controller.__name__, key=key, settings=settings):
+                        config = controller.parse_run_config(self.config_path, paths=self.paths)
+                        self.assertEqual(getattr(config, key), settings.get(key))
+                        self.assertNotIn(key, config.environment.parameters)
+
+    def test_server_timeouts_reject_invalid_values(self) -> None:
+        for key in ("server_inactivity_timeout_seconds", "server_terminal_grace_seconds"):
+            for value in (0, -1, True, False, "600", "", float("inf"), float("nan"), [], {}, 10**400):
+                self.write_config(**{key: value})
+                for controller in CONTROLLERS:
+                    with self.subTest(controller=controller.__name__, key=key, value=value):
+                        with self.assertRaisesRegex(RuntimeError, key):
+                            controller.parse_run_config(self.config_path, paths=self.paths)
+
+    def test_server_timeouts_can_be_configured_independently_together(self) -> None:
+        account = self.directory / "opencode_chatgpt_accounts" / "codex01"
+        account.mkdir(parents=True)
+        (account / "opencode.db").touch()
+        for backend in sorted(rb.BACKENDS):
+            with self.subTest(backend=backend):
+                self.write_config(
+                    backend=backend,
+                    agent="opencode_agent_v1" if backend == rb.OPENCODE_CHATGPT else "agent_v1",
+                    agent_parameters={"model": "test-model", "reasoning_effort": "medium"},
+                    server_inactivity_timeout_seconds=1800, server_terminal_grace_seconds=600,
+                )
+                config = accounts_controller.parse_run_config(self.config_path, paths=self.paths)
+                self.assertEqual(config.server_inactivity_timeout_seconds, 1800)
+                self.assertEqual(config.server_terminal_grace_seconds, 600)
+
     def test_runner_defaults_preserve_existing_byte_limits(self) -> None:
         expected = rf.RunnerConfig(10737418240, 2147483648, 2147483648)
         for settings in ({}, {"runner": {}}):

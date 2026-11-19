@@ -4,6 +4,8 @@ agent_parameters:
   model: gpt-5.6-sol
   reasoning_effort: max
 environment: example
+server_inactivity_timeout_seconds: 1800  # 30 minutes between operations
+server_terminal_grace_seconds: 600  # 10 minutes after a terminal response
 
 games:
   - counter

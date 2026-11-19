@@ -176,6 +176,28 @@ class LauncherTest(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", repr(command))
         self.assertLess(command.index("ARC_API_KEY"), command.index(IMAGES.server))
         self.assertIn("--pull=never", command)
+        self.assertNotIn("--inactivity-timeout-seconds", command)
+        self.assertNotIn("--terminal-grace-seconds", command)
+
+    def test_server_launch_forwards_timeouts_separately_from_environment_parameters(self) -> None:
+        environment = rf.EnvironmentConfig("example", {"target": 2}, [])
+        for inactivity, grace in ((1800, 600), (None, 600), (1800, None)):
+            with (
+                self.subTest(inactivity=inactivity, grace=grace),
+                patch.object(rf.subprocess, "Popen") as popen,
+                patch.object(rf, "log_info"),
+            ):
+                rf.start_server(
+                    "server", "internet", "internal", environment, "alias", "counter", image=IMAGES.server,
+                    server_inactivity_timeout_seconds=inactivity, server_terminal_grace_seconds=grace,
+                )
+            command = popen.call_args.args[0]
+            for flag, value in (("--inactivity-timeout-seconds", inactivity), ("--terminal-grace-seconds", grace)):
+                if value is None:
+                    self.assertNotIn(flag, command)
+                else:
+                    self.assertEqual(command[command.index(flag) + 1], str(value))
+            self.assertEqual(json.loads(command[command.index("--parameters") + 1]), {"target": 2})
 
     def test_terminal_bench_mount_is_server_only_and_ids_are_per_game(self) -> None:
         source = ROOT / "run_tb/socket"
@@ -293,10 +315,13 @@ class LauncherTest(unittest.TestCase):
                 if backend_name == rb.CODEX_API_KEY:
                     confirmation.assert_called_once_with()
 
-    def test_both_schedulers_pass_environment_to_server_and_workspace_setup(self) -> None:
-        for backend_name in BACKENDS:
+    def test_all_backends_forward_server_timeouts_and_prepare_workspace(self) -> None:
+        for backend_name in (*BACKENDS, rb.OPENCODE_CHATGPT):
             with self.subTest(backend=backend_name), ExitStack() as stack:
-                config = make_config(backend_name)
+                config = replace(make_config(backend_name), server_inactivity_timeout_seconds=1800,
+                                 server_terminal_grace_seconds=600)
+                if backend_name == rb.OPENCODE_CHATGPT:
+                    config = replace(config, agent="opencode_agent_v1", accounts=["opencode01"])
                 backend = make_backend(config)
                 names = rf.build_container_names(config.games)
                 mapping = {"public-alias": "counter"}
@@ -322,10 +347,11 @@ class LauncherTest(unittest.TestCase):
                     names.servers["counter"], names.internet_network, names.internal_network,
                     config.environment, "public-alias", "counter",
                     image=IMAGES.server, paths=config.paths,
+                    server_inactivity_timeout_seconds=1800, server_terminal_grace_seconds=600,
                 )
                 prepare.assert_called_once_with("public-alias", paths=config.paths)
                 prepare_agent.assert_called_once_with(
-                    "agent_v1", rf.RunPaths().run_dir / "public-alias",
+                    config.agent, rf.RunPaths().run_dir / "public-alias",
                     f"http://{names.servers['counter']}:{rf.SERVER_PORT}", "public-alias", config.agent_parameters,
                     initial_files_dir=None,
                 )

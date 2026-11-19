@@ -36,6 +36,8 @@ class RunConfig:
     runner: rf.RunnerConfig = rf.RunnerConfig()
     agent_docker_build_args: dict[str, str] = field(default_factory=dict)
     paths: rf.RunPaths = field(default_factory=rf.RunPaths)
+    server_inactivity_timeout_seconds: float | None = None
+    server_terminal_grace_seconds: float | None = None
 
     @property
     def agent_parameters(self) -> dict[str, object]:
@@ -114,6 +116,8 @@ def parse_run_config(path: Path, *, paths: rf.RunPaths | None = None) -> RunConf
         runner=rf.parse_runner_config(loaded, path),
         agent_docker_build_args=rf.parse_agent_docker_build_args(loaded, path),
         paths=paths,
+        server_inactivity_timeout_seconds=rf.parse_optional_seconds(loaded, path, "server_inactivity_timeout_seconds"),
+        server_terminal_grace_seconds=rf.parse_optional_seconds(loaded, path, "server_terminal_grace_seconds"),
     )
     backends.create_backend(config).validate()
     return config
@@ -175,6 +179,8 @@ def run_scheduler(config: RunConfig, container_names: rf.ContainerNames,
         config.environment, container_names, game_id_mapping, images=images,
         slots=backend.slots(len(game_id_mapping)), launch_agent=launch_agent,
         finalize_game=lambda slot, game: backend.finalize_game(slot, game, images.agent), paths=config.paths,
+        server_inactivity_timeout_seconds=config.server_inactivity_timeout_seconds,
+        server_terminal_grace_seconds=config.server_terminal_grace_seconds,
     )
 
 

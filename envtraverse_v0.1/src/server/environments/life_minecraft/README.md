@@ -109,6 +109,14 @@ applying the requested input; held controls are then released. This does not
 interrupt a thinking agent or implement an EnvTraverse/global server timeout.
 Success and invalid episodes are also reported through the next action.
 
+Optional [server shutdown timers](../../../../docs/running/README.md#server-shutdown-timers)
+are top-level run settings, separate from `minecraft_task_timeout_seconds`.
+`server_terminal_grace_seconds` starts after an action reports terminal status to
+the server. `server_inactivity_timeout_seconds` can close a session while the
+agent is thinking: an existing task result is preserved, otherwise the unfinished
+task is cancelled. Closing one session keeps the runtime and other games running.
+Both server timers are disabled when omitted.
+
 Exiting/disconnecting or restarting a game invalidates the attempt. Escape is
 available for ordinary menus and respawning, so disconnects are detected rather
 than prevented by hiding the game's controls. Runtime failures are recorded

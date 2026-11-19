@@ -175,6 +175,18 @@ Keep `agent_docker_build_args` and `runner` resource limits outside
 If you are reusing a configuration written for an earlier version, see
 [Using older configurations](#using-older-configurations).
 
+## Server shutdown timers
+
+Optional top-level settings accept positive finite seconds; omit or use `null` to disable:
+
+- `server_inactivity_timeout_seconds`: idle budget from server readiness, renewed
+  after successful initialization/actions. Reads and rejected requests do not renew it.
+- `server_terminal_grace_seconds`: fixed delay after the first terminal response completes.
+
+The earlier deadline closes the environment and stops any remaining agent, allowing
+in-progress requests to finish. These timers do not enforce total task duration or
+poll for asynchronous completion; task outcomes remain environment-specific.
+
 ## Choose a run root
 
 The **run root** is your experiment directory. It defaults to the directory
