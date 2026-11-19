@@ -13,7 +13,10 @@ services:
     volumes:
       - world:/data
       - ${TELEMETRY_DIR:?Set TELEMETRY_DIR}:/telemetry
-    networks: [game, downloads]
+    networks:
+      shared:
+        aliases:
+          - ${MC_SERVER_HOST:?Set MC_SERVER_HOST}
     stop_grace_period: 60s
     stdin_open: true
     restart: 'no'
@@ -44,20 +47,20 @@ services:
       RENDER_FPS: ${RENDER_FPS:-60}
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-}
       INPUT_EVENTS_PATH: /input-events/events.jsonl
-      SERVER_HOST: server
+      SERVER_HOST: ${MC_SERVER_HOST:?Set MC_SERVER_HOST}
       SERVER_PORT: '25565'
     volumes:
       - client:/data/client
       - ${INPUT_EVENTS_DIR:?Set INPUT_EVENTS_DIR}:/input-events
     ports: ['127.0.0.1::8000']
-    networks: [game, downloads]
+    networks: [shared]
     shm_size: 512m
     stop_grace_period: 20s
     restart: 'no'
 networks:
-  game:
-    internal: true
-  downloads: {}
+  shared:
+    external: true
+    name: ${MC_NETWORK:?Set MC_NETWORK}
 volumes:
   world: {}
   client: {}

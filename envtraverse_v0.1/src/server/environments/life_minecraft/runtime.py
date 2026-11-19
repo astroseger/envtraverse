@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import hmac
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,7 @@ from .recording import atomic_json
 from .session import Session
 from .settings import Settings
 from .images import pin_images
+from .network import RuntimeNetwork
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ def session_key(value) -> str:
 
 class RuntimeService:
     def __init__(self, run_root: Path, *, max_sessions: int = 1, accept_eula: bool = False,
-                 backend_factory=DockerBackend, clock=time.monotonic):
+                 backend_factory=DockerBackend, clock=time.monotonic, network_factory=RuntimeNetwork):
         if type(max_sessions) is not int or max_sessions < 1:
             raise ValueError("max_sessions must be positive")
         self.run_root = run_root.resolve()
@@ -65,6 +67,15 @@ class RuntimeService:
         self.stopping = False
         self.viewer_base = None
         self.cleanup_threads = []
+        self.network = network_factory(self.directory)
+        self.network_cleanup_error = None
+
+    def prepare(self):
+        """Create the shared network before accepting game requests."""
+        with self.lock:
+            if self.stopping:
+                raise RuntimeError("Minecraft runtime is shutting down")
+            self.network.create()
 
     def dispatch(self, request: dict):
         if request.get("version") != PROTOCOL_VERSION:
@@ -141,10 +152,12 @@ class RuntimeService:
                     raise RuntimeFault("duplicate_session", "Session has already been prepared")
                 try:
                     directory.mkdir()
+                    self.network.create()  # Idempotent for direct RuntimeService callers.
                     viewer = None if self.viewer_base is None else self.viewer_base + f"/sessions/{key}/view"
                     session = Session(session_id=key, owner_token=token, task=task, settings=settings,
                                       run_root=self.run_root, directory=directory, accept_eula=self.accept_eula,
-                                      backend_factory=self.backend_factory, clock=self.clock, viewer_url=viewer)
+                                      backend_factory=partial(self.backend_factory, network_name=self.network.name),
+                                      clock=self.clock, viewer_url=viewer)
                 except Exception as error:
                     LOGGER.exception("Session preparation failed: %s", key)
                     atomic_json(directory / "result.json", {"session_id": key, "task_id": game_id,
@@ -190,6 +203,12 @@ class RuntimeService:
             threads = list(self.cleanup_threads)
         for thread in threads:
             thread.join()
+        try:
+            self.network.close()
+            self.network_cleanup_error = None
+        except Exception as error:
+            self.network_cleanup_error = str(error)
+            LOGGER.exception("Could not remove the shared Minecraft network %s", self.network.name)
 
 
 class RuntimeHandler(socketserver.BaseRequestHandler):
@@ -353,15 +372,16 @@ def main(argv=None):
         runtime = RuntimeServer("socket/runtime.sock", service)
         spectator = SpectatorServer((args.spectator_host, args.spectator_port), service)
         service.viewer_base = f"http://127.0.0.1:{spectator.server_port}"
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, lambda *_: stopped.set())
+        service.prepare()
         for server in (runtime, spectator):
             threading.Thread(target=server.serve_forever, daemon=True).start()
             started_servers.append(server)
-        for signum in (signal.SIGINT, signal.SIGTERM):
-            previous[signum] = signal.signal(signum, lambda *_: stopped.set())
         atomic_json(service.directory / "runtime.json", {"status": "ready", "pid": os.getpid(),
                     "socket_path": str(service.directory / "socket/runtime.sock"),
                     "spectator_url": service.viewer_base, "max_sessions": args.max_sessions,
-                    "images": image_lock})
+                    "images": image_lock, "network": service.network.metadata()})
         LOGGER.info("Runtime ready at %s; spectator %s", service.directory / "socket/runtime.sock", service.viewer_base)
         stopped.wait()
     finally:
@@ -376,8 +396,10 @@ def main(argv=None):
         cleanup_required = [key for key, session in service.sessions.items() if session.cleanup_failed]
         atomic_json(service.directory / "runtime.json", {"status": "stopped", "pid": os.getpid(),
                                                         "cleanup_required": cleanup_required,
-                                                        "images": image_lock})
-    return 1 if cleanup_required else 0
+                                                        "images": image_lock,
+                                                        "network": service.network.metadata(),
+                                                        "network_cleanup_error": service.network_cleanup_error})
+    return 1 if cleanup_required or service.network_cleanup_error else 0
 
 
 if __name__ == "__main__":

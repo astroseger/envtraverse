@@ -59,8 +59,9 @@ class Clock:
 
 
 class FakeBackend:
-    def __init__(self, session_id, directory, settings, *, accept_eula=False):
+    def __init__(self, session_id, directory, settings, *, accept_eula=False, network_name=None):
         self.session_id, self.settings = session_id, settings
+        self.network_name = network_name
         self.actions, self.releases, self.stopped, self.sequence = [], 0, False, 0
         self.cancelled = threading.Event()
         self.state = {"session_id": session_id, "connected": True, "server_running": True,
@@ -93,6 +94,25 @@ class FakeBackend:
         self.stopped = True
 
 
+class FakeNetwork:
+    def __init__(self, directory):
+        self.name = "test-runtime-network-" + uuid4().hex
+        self.created = self.closed = False
+        self.creations = 0
+
+    def create(self):
+        if not self.created:
+            self.creations += 1
+            self.created = True
+        return self.name
+
+    def close(self):
+        self.closed = True
+
+    def metadata(self):
+        return {"name": self.name, "created": self.created, "closed": self.closed}
+
+
 def request(method, session_id, token, **kwargs):
     return {"version": PROTOCOL_VERSION, "method": method, "session_id": session_id,
             "owner_token": token, **kwargs}
@@ -114,7 +134,8 @@ def start(service, *, timeout=10):
 
 @pytest.fixture
 def service(tmp_path):
-    value = RuntimeService(tmp_path, backend_factory=FakeBackend, clock=Clock(), max_sessions=2)
+    value = RuntimeService(tmp_path, backend_factory=FakeBackend, clock=Clock(), max_sessions=2,
+                           network_factory=FakeNetwork)
     yield value
     value.shutdown()
 

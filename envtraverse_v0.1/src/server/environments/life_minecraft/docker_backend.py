@@ -16,9 +16,12 @@ from .recording import JsonlTail, atomic_json
 
 
 class DockerBackend:
-    def __init__(self, session_id: str, directory: Path, settings, *, accept_eula: bool = False):
+    def __init__(self, session_id: str, directory: Path, settings, *, accept_eula: bool = False,
+                 network_name: str | None = None):
         self.session_id, self.directory, self.settings = session_id, directory, settings
         self.accept_eula = accept_eula
+        self.network_name = network_name
+        self.server_host = "mc-server-" + session_id
         self.project = "life-minecraft-" + session_id
         self.compose = Path(__file__).resolve().parent / "game" / "compose.yaml"
         self.token = uuid4().hex
@@ -39,7 +42,13 @@ class DockerBackend:
             RUN_ID=session_id, PLAYER_NAME="AgentPlayer", AUTH_MODE="offline", ONLINE_MODE="false",
             DIFFICULTY=settings.difficulty, HARDCORE=str(settings.hardcore).lower(), SEED=str(settings.seed),
             WIDTH=str(settings.width), HEIGHT=str(settings.height), CAPTURE_FPS=str(settings.capture_fps),
-            RENDER_FPS=str(settings.render_fps), BRIDGE_TOKEN=self.token)
+            RENDER_FPS=str(settings.render_fps), BRIDGE_TOKEN=self.token,
+            MC_SERVER_HOST=self.server_host)
+        # Network ownership belongs to the runtime, never a process-global
+        # override or an individual Compose project.
+        self.environment.pop("MC_NETWORK", None)
+        if network_name is not None:
+            self.environment["MC_NETWORK"] = network_name
         self.log = directory / "docker.log"
 
     def command(self, *arguments: str, timeout: float = 120, capture: bool = False, cancellable: bool = False):
@@ -121,6 +130,8 @@ class DockerBackend:
     def start(self):
         if not self.accept_eula:
             raise RuntimeError("Minecraft EULA acceptance is required")
+        if not isinstance(self.network_name, str) or not self.network_name.strip():
+            raise RuntimeError("Minecraft runtime must provide a shared Docker network")
         if self.cancelled.is_set():
             raise RuntimeError("Minecraft startup was cancelled")
         deadline = time.monotonic() + self.settings.startup_timeout_seconds
@@ -142,6 +153,7 @@ class DockerBackend:
         # Private bridge credentials are deliberately not saved in session records.
         atomic_json(self.directory / "backend.json", {"project": self.project,
                     "client_url": self.url, "minecraft_version": "1.21.1",
+                    "network": self.network_name, "server_host": self.server_host,
                     "server_image": os.getenv("MC_SERVER_IMAGE_REFERENCE", os.getenv("MC_SERVER_IMAGE", "life-minecraft-server")),
                     "client_image": os.getenv("MC_CLIENT_IMAGE_REFERENCE", os.getenv("MC_CLIENT_IMAGE", "life-minecraft-client")),
                     "containers": images})

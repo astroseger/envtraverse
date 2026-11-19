@@ -189,9 +189,14 @@ Actions plus the seed do not provide deterministic replay of Minecraft.
 
 Set `--max-sessions N` on the launcher/runtime and configure the ordinary runner
 for at most N active games. For the API-key backend this is `max_parallel_games`;
-account-backed runs are limited by their configured accounts. Each game uses
-separate Docker networks/volumes and a dynamically allocated loopback bridge
-port. The spectator service serves all sessions on one port. Start conservatively
+account-backed runs are limited by their configured accounts. The host runtime
+creates one shared Docker bridge network for all its Minecraft games. Each game
+has separate containers/world volumes, a unique server hostname, and a dynamically
+allocated loopback control port. Games share network connectivity; their worlds
+and controls remain independent. The runtime records its owned network in
+`run_mc/network.json` and removes it after all sessions have been cleaned up.
+Closing one session leaves the shared network and other sessions running.
+The spectator service serves all sessions on one port. Start conservatively
 with one or two games when using software rendering.
 
 Every catalog task starts independently. Later goals do not inherit inventory or
