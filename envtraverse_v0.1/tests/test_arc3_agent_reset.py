@@ -118,7 +118,7 @@ class Arc3AgentResetTest(unittest.TestCase):
             self.assertEqual(self.subject.run(), 0)
         self.client.assert_called_once_with(RESET_COMMAND)
         self.assertEqual(self.send.call_count, 1)
-        self.assertEqual(self.snapshot.call_count, 1)
+        self.snapshot.assert_not_called()
         self.assertIsNone(self.subject.last_stuck_step)
 
     def test_running_game_keeps_normal_and_stuck_protocols(self) -> None:

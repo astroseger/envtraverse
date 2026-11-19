@@ -253,7 +253,7 @@ class SimpleAgent:
         self.send_prompt(self.stuck_reminder_prompt)
 
     def iteration_loop(self, inspection: SessionInspection) -> None:
-        self.run_git(inspection)
+        # self.run_git(inspection)  # Automatic workspace snapshots disabled.
 
         if self.previous_loop_step_index == inspection.step_index:
             self.stuck_protocol()

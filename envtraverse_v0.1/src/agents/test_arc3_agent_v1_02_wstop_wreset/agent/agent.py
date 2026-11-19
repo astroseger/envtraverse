@@ -247,7 +247,7 @@ class SimpleAgent:
         self.send_prompt(self.continuation_prompt() + "\n" + self.stuck_reminder_prompt)
 
     def iteration_loop(self, inspection: SessionInspection) -> None:
-        self.run_git(inspection)
+        # self.run_git(inspection)  # Automatic workspace snapshots disabled.
 
         if inspection.is_game_over:
             self.normal_reset_protocol()

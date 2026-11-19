@@ -221,7 +221,7 @@ class OpenCodeAgentLifecycleTest(unittest.TestCase):
         self.assertEqual(self.runner.send.call_args_list,
                          [call(initial), call(continuation)] + [call(reminder)] * self.reminder_limit)
         self.assertEqual(self.inspection.call_count, self.reminder_limit + 2)
-        self.assertEqual(self.git.call_count, self.reminder_limit + 1)
+        self.git.assert_not_called()
 
     def test_progress_after_reminder_resumes_continuation_then_terminal_stops(self):
         initial, continuation, reminder = self.expected_prompts()
@@ -231,7 +231,7 @@ class OpenCodeAgentLifecycleTest(unittest.TestCase):
         self.assertEqual(self.subject.run(), 0)
         self.assertEqual(self.runner.send.call_args_list,
                          [call(initial), call(continuation), call(reminder), call(continuation), call(reminder)])
-        self.assertEqual(self.git.call_count, 4)
+        self.git.assert_not_called()
 
     def test_terminal_after_initial_turn_needs_no_continuation_or_git_snapshot(self):
         initial, _, _ = self.expected_prompts()
