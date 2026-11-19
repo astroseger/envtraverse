@@ -65,6 +65,9 @@ def test_wrapper_drains_runtime_after_controller(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "stop_process", lambda p, **kw: calls.append(("stop", p.label)) if p else None)
     assert mc.run_experiment(ROOT, config, paths=rf.RunPaths(tmp_path), accept_eula=True) == 0
     assert [label for kind, label in calls if kind == "stop"] == ["setup", "controller", "runtime"]
+    runtime_command = next(command for kind, command in calls
+                           if kind == "start" and command[1].endswith("run.sh"))
+    assert "--max-sessions" not in runtime_command
 
 
 def test_prepared_images_are_reused_by_default(monkeypatch):

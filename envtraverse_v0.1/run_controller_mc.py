@@ -93,7 +93,7 @@ def needs_image_build(*, rebuild=False, skip=False):
 
 
 def run_experiment(source_root: Path, run_config: Path, *, paths=None,
-                   accept_eula=False, skip_build=False, rebuild_images=False, max_sessions=1,
+                   accept_eula=False, skip_build=False, rebuild_images=False,
                    spectator_port=8766):
     paths = paths or rf.RunPaths()
     for directory in (paths.run_dir, paths.run_mc_dir):
@@ -105,8 +105,6 @@ def run_experiment(source_root: Path, run_config: Path, *, paths=None,
         raise RuntimeError("The run configuration must select environment: life_minecraft")
     if not accept_eula and os.environ.get("EULA", "").lower() != "true":
         raise RuntimeError("Minecraft requires EULA acceptance; use --accept-eula after accepting https://www.minecraft.net/eula")
-    if type(max_sessions) is not int or max_sessions < 1:
-        raise RuntimeError("max_sessions must be a positive integer")
     if type(spectator_port) is not int or not 0 <= spectator_port <= 65535:
         raise RuntimeError("spectator_port must be between 0 and 65535")
 
@@ -140,7 +138,7 @@ def run_experiment(source_root: Path, run_config: Path, *, paths=None,
         for service, image in resolved.items():
             print(f"[mc] Frozen {service} image: {image['id']}", flush=True)
         command = ["bash", str(host / "run.sh"), "--run-root", str(paths.root),
-                   "--max-sessions", str(max_sessions), "--spectator-port", str(spectator_port)]
+                   "--spectator-port", str(spectator_port)]
         if accept_eula:
             command.append("--accept-eula")
         runtime = start_process(source_root, command, stdout=subprocess.PIPE,
@@ -183,7 +181,6 @@ def main(argv=None):
     build = parser.add_mutually_exclusive_group()
     build.add_argument("--skip-build", action="store_true", help="Require existing prepared images; normally reused automatically")
     build.add_argument("--rebuild-images", action="store_true", help="Rebuild the Minecraft images; reusable asset/dependency layers stay cached")
-    parser.add_argument("--max-sessions", type=int, default=1, help="Maximum simultaneous Minecraft games")
     parser.add_argument("--spectator-port", type=int, default=8766, help="Loopback viewer port; 0 chooses a free port")
     args = parser.parse_args(argv)
     try:
@@ -191,7 +188,7 @@ def main(argv=None):
         return run_experiment(ROOT, paths.resolve_config(args.run_config), paths=paths,
                               accept_eula=args.accept_eula, skip_build=args.skip_build,
                               rebuild_images=args.rebuild_images,
-                              max_sessions=args.max_sessions, spectator_port=args.spectator_port)
+                              spectator_port=args.spectator_port)
     except (OSError, RuntimeError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

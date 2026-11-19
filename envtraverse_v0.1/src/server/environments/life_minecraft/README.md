@@ -201,9 +201,9 @@ Actions plus the seed do not provide deterministic replay of Minecraft.
 
 ## Parallel games
 
-Set `--max-sessions N` on the launcher/runtime and configure the ordinary runner
-for at most N active games. For the API-key backend this is `max_parallel_games`;
-account-backed runs are limited by their configured accounts. The host runtime
+Parallelism follows the ordinary runner configuration: `max_parallel_games`
+for the API-key backend, or the configured accounts for account-backed runs.
+The Minecraft runtime imposes no additional session limit. The host runtime
 creates one shared Docker bridge network for all its Minecraft games. Each game
 has separate containers/world volumes, a unique server hostname, and a dynamically
 allocated loopback control port. Games share network connectivity; their worlds

@@ -11,7 +11,7 @@ from life_minecraft.tests.test_runtime import Clock, FakeBackend, FakeNetwork, r
 
 def service_at(path):
     return RuntimeService(path, backend_factory=FakeBackend, network_factory=FakeNetwork,
-                          clock=Clock(), max_sessions=2)
+                          clock=Clock())
 
 
 def test_concurrent_games_share_one_network_and_closing_one_keeps_other_alive(tmp_path):

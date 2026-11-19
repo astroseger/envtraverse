@@ -1,6 +1,7 @@
 """Runtime integration tests use real sockets/files and a fake game backend."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
 import os
@@ -134,7 +135,7 @@ def start(service, *, timeout=10):
 
 @pytest.fixture
 def service(tmp_path):
-    value = RuntimeService(tmp_path, backend_factory=FakeBackend, clock=Clock(), max_sessions=2,
+    value = RuntimeService(tmp_path, backend_factory=FakeBackend, clock=Clock(),
                            network_factory=FakeNetwork)
     yield value
     value.shutdown()
@@ -200,85 +201,126 @@ def test_goal_success_is_latched_and_independent_sessions_do_not_share_state(ser
         service.dispatch(request("start", second, second_token, game_id=list_tasks()[0]["id"], settings={}))
 
 
-def test_next_session_waits_for_acknowledged_cleanup_slot(service):
-    service.max_sessions = 1
+def test_multiple_sessions_start_concurrently_by_default(service):
+    barrier = threading.Barrier(4)
+
+    class ConcurrentBackend(FakeBackend):
+        def start(self):
+            # Every backend must enter startup before any can finish it.
+            barrier.wait(timeout=3)
+            return super().start()
+
+    service.backend_factory = ConcurrentBackend
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: start(service), range(4)))
+    assert len({result[0] for result in results}) == 4
+    assert all(session.started and not session.closed for session in service.sessions.values())
+    assert service.network.creations == 1
+
+
+def test_next_session_starts_while_acknowledged_cleanup_continues(service):
     sid, token, *_ = start(service)
+    session = service.sessions[sid]
     entered, finish = threading.Event(), threading.Event()
+    stop = session.backend.stop
+
     def slow_stop():
         entered.set()
-        finish.wait(3)
-    service.sessions[sid].backend.stop = slow_stop
+        finish.wait(5)
+        stop()
+
+    session.backend.stop = slow_stop
     service.dispatch(request("close", sid, token))
     assert entered.wait(1)
-    results = []
-    thread = threading.Thread(target=lambda: results.append(start(service)))
-    thread.start()
-    time.sleep(0.05)
-    assert thread.is_alive()
-    finish.set()
-    thread.join(3)
-    assert len(results) == 1
+    results, errors = [], []
 
-
-def test_failed_cleanup_does_not_claim_capacity_is_free(service):
-    service.max_sessions = 1
-    sid, token, *_ = start(service)
-    def fail_stop():
-        raise RuntimeError("Docker daemon unavailable")
-    service.sessions[sid].backend.stop = fail_stop
-    service.dispatch(request("close", sid, token))
-    assert service.sessions[sid].closed_event.wait(3)
-    assert service.sessions[sid].cleanup_failed
-    with pytest.raises(RuntimeFault, match="requires Docker cleanup"):
-        start(service)
-
-
-def test_close_cancels_pending_start_before_backend_creation(service):
-    service.max_sessions = 1
-    first, first_token, *_ = start(service)
-    cleanup_entered, finish_cleanup = threading.Event(), threading.Event()
-    def slow_stop():
-        cleanup_entered.set()
-        finish_cleanup.wait(5)
-    service.sessions[first].backend.stop = slow_stop
-    service.dispatch(request("close", first, first_token))
-    assert cleanup_entered.wait(1)
-    second, token = uuid4().hex, uuid4().hex
-    prepare_workspace(service.run_root, second)
-    errors = []
-    def queued_start():
+    def next_start():
         try:
-            service.dispatch(request("start", second, token, game_id=list_tasks()[0]["id"], settings={}))
-        except RuntimeFault as error:
-            errors.append(error.code)
-    thread = threading.Thread(target=queued_start, daemon=True)
+            results.append(start(service))
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=next_start)
     thread.start()
     try:
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            with service.lock:
-                if second in service.pending:
-                    break
-            time.sleep(0.005)
-        with service.lock:
-            assert service.pending.get(second) == token
-        with pytest.raises(RuntimeFault) as wrong_owner:
-            service.dispatch(request("close", second, uuid4().hex))
-        assert wrong_owner.value.code == "not_owner"
-        assert thread.is_alive()
-        assert service.dispatch(request("close", second, token)) == {"closed": True}
-        thread.join(2)
+        thread.join(1)
         assert not thread.is_alive()
-        assert errors == ["cancelled"]
-        assert second not in service.sessions
-        assert not (service.directory / "sessions" / second).exists()
-        # A retry by the manager after close cannot bring the game to life.
-        with pytest.raises(RuntimeFault) as retry:
-            service.dispatch(request("start", second, token, game_id=list_tasks()[0]["id"], settings={}))
-        assert retry.value.code == "cancelled"
-        assert service.dispatch(request("close", second, token)) == {"closed": True}
+        assert not errors
+        assert len(results) == 1
+        assert not session.closed
+        assert not service.sessions[results[0][0]].closed
     finally:
-        finish_cleanup.set()
+        finish.set()
+        thread.join(3)
+    assert session.closed_event.wait(3)
+    assert session.backend.stopped
+
+
+def test_failed_cleanup_is_recorded_without_blocking_other_sessions(service):
+    sid, token, *_ = start(service)
+    session = service.sessions[sid]
+
+    def fail_stop():
+        raise RuntimeError("Docker daemon unavailable")
+
+    session.backend.stop = fail_stop
+    service.dispatch(request("close", sid, token))
+    assert session.closed_event.wait(3)
+    assert session.cleanup_failed
+    next_sid, *_ = start(service)
+    assert service.sessions[next_sid].started
+    assert not service.sessions[next_sid].cleanup_failed
+    assert session.cleanup_failed
+    metadata = json.loads((session.directory / "session.json").read_text())
+    assert metadata["cleanup_error"] == "RuntimeError"
+    events = [json.loads(line) for line in (session.directory / "events.jsonl").read_text().splitlines()]
+    assert any(event["type"] == "session_closed" and event["data"]["cleanup_error"] == "RuntimeError"
+               for event in events)
+
+
+def test_close_during_backend_startup_cancels_and_cleans_session(service):
+    entered = threading.Event()
+
+    class SlowBackend(FakeBackend):
+        def start(self):
+            entered.set()
+            if not self.cancelled.wait(3):
+                raise RuntimeError("Test startup cancellation timed out")
+            raise RuntimeError("Minecraft startup was cancelled")
+
+    service.backend_factory = SlowBackend
+    sid, token = uuid4().hex, uuid4().hex
+    prepare_workspace(service.run_root, sid)
+    errors = []
+
+    def slow_start():
+        try:
+            service.dispatch(request("start", sid, token, game_id=list_tasks()[0]["id"], settings={}))
+        except RuntimeFault as error:
+            errors.append(error.code)
+
+    thread = threading.Thread(target=slow_start)
+    thread.start()
+    try:
+        assert entered.wait(1)
+        with pytest.raises(RuntimeFault) as wrong_owner:
+            service.dispatch(request("close", sid, uuid4().hex))
+        assert wrong_owner.value.code == "not_owner"
+        session = service.sessions[sid]
+        assert not session.backend.cancelled.is_set()
+        assert service.dispatch(request("close", sid, token)) == {"closed": True}
+        thread.join(3)
+        assert not thread.is_alive()
+        assert errors == ["start_failed"]
+        assert session.closed_event.wait(3)
+        assert session.backend.cancelled.is_set()
+        assert session.backend.stopped
+        assert not session.cleanup_failed
+        assert json.loads((session.directory / "result.json").read_text())["reason"] == "startup_failed"
+        assert service.dispatch(request("close", sid, token)) == {"closed": True}
+    finally:
+        if sid in service.sessions:
+            service.close_session(service.sessions[sid])
         thread.join(3)
 
 

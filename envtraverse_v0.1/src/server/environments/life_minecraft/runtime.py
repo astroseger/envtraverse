@@ -44,27 +44,22 @@ def session_key(value) -> str:
 
 
 class RuntimeService:
-    def __init__(self, run_root: Path, *, max_sessions: int = 1, accept_eula: bool = False,
+    def __init__(self, run_root: Path, *, accept_eula: bool = False,
                  backend_factory=DockerBackend, clock=time.monotonic, network_factory=RuntimeNetwork):
-        if type(max_sessions) is not int or max_sessions < 1:
-            raise ValueError("max_sessions must be positive")
         self.run_root = run_root.resolve()
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.directory = self.run_root / "run_mc"
         self.directory.mkdir()
         (self.directory / "socket").mkdir()
         (self.directory / "sessions").mkdir()
-        self.max_sessions, self.accept_eula = max_sessions, accept_eula
+        self.accept_eula = accept_eula
         self.backend_factory, self.clock = backend_factory, clock
         self.sessions: dict[str, Session] = {}
-        # Reserve ownership before waiting for a slot. Closed identities remain
-        # remembered, so an acknowledged close cannot race a delayed start into
-        # launching an orphaned game.
+        # Remember ownership and closed identities so an acknowledged close
+        # cannot race a delayed start into launching an orphaned game.
         self.owners: dict[str, str] = {}
-        self.pending: dict[str, str] = {}
         self.closed_requests: set[tuple[str, str]] = set()
         self.lock = threading.RLock()
-        self.capacity_changed = threading.Condition(self.lock)
         self.stopping = False
         self.viewer_base = None
         self.cleanup_threads = []
@@ -109,10 +104,7 @@ class RuntimeService:
                     # An unknown close is remembered only for this exact
                     # owner capability, never for another manager's identity.
                     self.closed_requests.add((key, token))
-                    self.capacity_changed.notify_all()
                     return {"closed": True}
-                if key in self.pending:
-                    raise RuntimeFault("not_ready", "Minecraft session is waiting for capacity")
                 raise RuntimeFault("unknown_session", "Unknown Minecraft session")
             if not hmac.compare_digest(session.owner_token, token):
                 raise RuntimeFault("not_owner", "Session belongs to another manager")
@@ -138,38 +130,23 @@ class RuntimeService:
             if key in self.owners:
                 raise RuntimeFault("duplicate_session", "Session has already been started")
             self.owners[key] = token
-            self.pending[key] = token
+            directory = self.directory / "sessions" / key
+            if directory.exists():
+                raise RuntimeFault("duplicate_session", "Session has already been prepared")
             try:
-                while sum(not session.closed or session.cleanup_failed for session in self.sessions.values()) >= self.max_sessions:
-                    self._check_pending_start(key, token)
-                    # close acknowledges cleanup ownership immediately. A sequential
-                    # runner can request its next game while Docker is still stopping
-                    # the previous one; wait for that slot rather than rejecting it.
-                    if not any(session.close_requested and not session.closed for session in self.sessions.values()):
-                        if any(session.cleanup_failed for session in self.sessions.values()):
-                            raise RuntimeFault("capacity", "Previous Minecraft session requires Docker cleanup; inspect host logs")
-                        raise RuntimeFault("capacity", "Minecraft runtime concurrency limit reached")
-                    self.capacity_changed.wait(timeout=1)
-                self._check_pending_start(key, token)
-                directory = self.directory / "sessions" / key
-                if directory.exists():
-                    raise RuntimeFault("duplicate_session", "Session has already been prepared")
-                try:
-                    directory.mkdir()
-                    self.network.create()  # Idempotent for direct RuntimeService callers.
-                    viewer = None if self.viewer_base is None else self.viewer_base + f"/sessions/{key}/view"
-                    session = Session(session_id=key, owner_token=token, task=task, settings=settings,
-                                      run_root=self.run_root, directory=directory, accept_eula=self.accept_eula,
-                                      backend_factory=partial(self.backend_factory, network_name=self.network.name),
-                                      clock=self.clock, viewer_url=viewer, resources=resources)
-                except Exception as error:
-                    LOGGER.exception("Session preparation failed: %s", key)
-                    atomic_json(directory / "result.json", {"session_id": key, "task_id": game_id,
-                        "status": "error", "success": False, "reason": "preparation_failed", "finished_at": time.time()})
-                    raise RuntimeFault("start_failed", "Minecraft workspace preparation failed") from error
-                self.sessions[key] = session
-            finally:
-                self.pending.pop(key, None)
+                directory.mkdir()
+                self.network.create()  # Idempotent for direct RuntimeService callers.
+                viewer = None if self.viewer_base is None else self.viewer_base + f"/sessions/{key}/view"
+                session = Session(session_id=key, owner_token=token, task=task, settings=settings,
+                                  run_root=self.run_root, directory=directory, accept_eula=self.accept_eula,
+                                  backend_factory=partial(self.backend_factory, network_name=self.network.name),
+                                  clock=self.clock, viewer_url=viewer, resources=resources)
+            except Exception as error:
+                LOGGER.exception("Session preparation failed: %s", key)
+                atomic_json(directory / "result.json", {"session_id": key, "task_id": game_id,
+                    "status": "error", "success": False, "reason": "preparation_failed", "finished_at": time.time()})
+                raise RuntimeFault("start_failed", "Minecraft workspace preparation failed") from error
+            self.sessions[key] = session
         try:
             return session.start()
         except Exception as error:
@@ -177,31 +154,18 @@ class RuntimeService:
             self.close_session(session)
             raise RuntimeFault("start_failed", "Minecraft startup failed; inspect host run_mc logs") from error
 
-    def _check_pending_start(self, key: str, token: str):
-        if (key, token) in self.closed_requests:
-            raise RuntimeFault("cancelled", "Minecraft session was closed before startup")
-        if self.stopping:
-            raise RuntimeFault("unavailable", "Runtime is shutting down")
-
     def close_session(self, session: Session):
         with self.lock:
             if session.close_requested:
                 return
             session.close_requested = True
-            def cleanup():
-                try:
-                    session.close()
-                finally:
-                    with self.capacity_changed:
-                        self.capacity_changed.notify_all()
-            thread = threading.Thread(target=cleanup, name="mc-close-" + session.session_id[:8], daemon=True)
+            thread = threading.Thread(target=session.close, name="mc-close-" + session.session_id[:8], daemon=True)
             self.cleanup_threads.append(thread)
             thread.start()
 
     def shutdown(self):
         with self.lock:
             self.stopping = True
-            self.capacity_changed.notify_all()
             for session in self.sessions.values():
                 self.close_session(session)
             threads = list(self.cleanup_threads)
@@ -351,7 +315,6 @@ class SpectatorServer(ThreadingHTTPServer):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-root", type=Path, default=Path.cwd())
-    parser.add_argument("--max-sessions", type=int, default=1)
     parser.add_argument("--spectator-host", default="127.0.0.1")
     parser.add_argument("--spectator-port", type=int, default=8766)
     parser.add_argument("--accept-eula", action="store_true")
@@ -361,7 +324,7 @@ def main(argv=None):
     if not 0 <= args.spectator_port <= 65535:
         parser.error("spectator-port must be in 0..65535")
     image_lock = pin_images()
-    service = RuntimeService(args.run_root, max_sessions=args.max_sessions,
+    service = RuntimeService(args.run_root,
                              accept_eula=args.accept_eula or os.getenv("EULA", "").lower() == "true")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         handlers=[logging.StreamHandler(), logging.FileHandler(service.directory / "runtime.log")])
@@ -384,7 +347,7 @@ def main(argv=None):
             started_servers.append(server)
         atomic_json(service.directory / "runtime.json", {"status": "ready", "pid": os.getpid(),
                     "socket_path": str(service.directory / "socket/runtime.sock"),
-                    "spectator_url": service.viewer_base, "max_sessions": args.max_sessions,
+                    "spectator_url": service.viewer_base,
                     "images": image_lock, "network": service.network.metadata()})
         LOGGER.info("Runtime ready at %s; spectator %s", service.directory / "socket/runtime.sock", service.viewer_base)
         stopped.wait()
