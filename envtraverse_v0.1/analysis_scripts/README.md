@@ -184,7 +184,7 @@ It does not replay tasks or rerun verification. See the
 
 ## Life Minecraft
 
-Run `python3 life_minecraft/analysis_v1.py /path/to/experiment` to report task outcomes and gameplay statistics from `run/` and `run_mc/` (add `--json` for JSON output).
+Run `python3 life_minecraft/analysis_v1.py /path/to/experiment` for task outcomes and gameplay statistics (`--json` for JSON), or `python3 life_minecraft/make_videos_v1.py /path/to/experiment --fps 30` to render MP4s in `run_mc/videos/` (requires ffmpeg; defaults to 30 FPS, one saved image per video frame; use `--overwrite` to replace videos).
 
 ## Report versions and cost conventions
 
