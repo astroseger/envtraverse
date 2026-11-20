@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report Real-Time Minecraft outcomes and gameplay statistics from a run archive.
+"""Report Real-Time Minecraft outcomes, gameplay statistics and token costs from a run archive.
 
 Usage: python3 analysis_v1.py /path/to/experiment [--json]
 Reads only experiment/run/ and experiment/run_mc/. Uses the standard library,
@@ -18,6 +18,13 @@ import math
 from pathlib import Path
 import re
 import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from analysis_scripts.arc3.print_results_md_cost_v2 import cost_tokens
+from analysis_scripts.extract_raw_cost_tokens import extract_raw_cost_tokens
 
 
 def number(value):
@@ -364,11 +371,19 @@ def analyze_run(root):
     reader = Reader(root)
     if not root.is_dir():
         raise ValueError(f"Run root is not a directory: {root}")
+    costs = {}
+    for record in extract_raw_cost_tokens(root / "run", readable=reader.exists):
+        alias = Path(record["run_folder"]).name
+        try:
+            costs[alias] = cost_tokens(record)
+        except (ValueError, OverflowError) as exc:
+            reader.warn(f"Invalid token counts for {alias}: {exc}")
     names = discover(root, reader)
     if not names:
         raise ValueError(f"No games found under {root}/run or {root}/run_mc")
     games = [analyze_game(root, alias, task) for alias, task in names.items()]
     for game in games:
+        game["cost_tokens"] = costs.get(game["session_id"])
         game["warnings"] = reader.warnings + game["warnings"]
     return sorted(games, key=lambda g: (g["started_at"] if g["started_at"] is not None else float("inf"), g["session_id"]))
 
@@ -393,13 +408,15 @@ def items(values):
 
 
 def render_report(games):
-    rows = ["| Task | Session | Completed | Reason | Duration | Deaths | Respawns | Kills | Actions |",
-            "|---|---|---|---|---|---:|---:|---:|---:|"]
+    rows = ["| Task | Session | Completed | Reason | Duration | Deaths | Respawns | Kills | Actions | Cost tokens (M) |",
+            "|---|---|---|---|---|---:|---:|---:|---:|---:|"]
     for game in games:
         completed = {"completed": "YES", "failed": "NO", "unknown": "UNKNOWN"}[game["outcome"]]
         kills = None if game["kills"] is None else sum(game["kills"].values())
+        cost = game.get("cost_tokens")
         values = (game["task_id"], game["session_id"][:8], completed, game["reason"],
-                  duration(game["elapsed_seconds"]), game["deaths"], game["respawns"], kills, game["accepted_actions"])
+                  duration(game["elapsed_seconds"]), game["deaths"], game["respawns"], kills, game["accepted_actions"],
+                  None if cost is None else f"{cost / 1_000_000:,.2f}")
         rows.append("| " + " | ".join("?" if v is None else display(v) for v in values) + " |")
     completed = sum(g["outcome"] == "completed" for g in games)
     unknown = sum(g["outcome"] == "unknown" for g in games)

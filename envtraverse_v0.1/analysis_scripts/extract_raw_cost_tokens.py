@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -93,16 +94,21 @@ def read_opencode_usage_snapshot(path: Path) -> dict[str, int]:
     return {field: totals[field] for field in TOKEN_FIELDS}
 
 
-def extract_token_counts(log_path: Path) -> dict[str, int]:
+def extract_token_counts(
+    log_path: Path, *, readable: Callable[[Path], bool] | None = None,
+) -> dict[str, int]:
     """Prefer recorded OpenCode session usage, otherwise extract stdout counters.
 
     Repeated thread.started events (resumes/recovery) do not reset a thread's
     counters. The OpenCode stdout fallback deduplicates completed steps by
     session/message and warns that root-session output is incomplete.
     """
-    snapshot_path = log_path.with_name(OPENCODE_USAGE_FILENAME)
-    if snapshot_path.exists() or snapshot_path.is_symlink():
-        return read_opencode_usage_snapshot(snapshot_path)
+    snapshot = log_path.with_name(OPENCODE_USAGE_FILENAME)
+    source = snapshot if snapshot.exists() or snapshot.is_symlink() else log_path
+    if readable is not None and not readable(source):
+        raise FileNotFoundError(f"Token usage unavailable: {source}")
+    if source == snapshot:
+        return read_opencode_usage_snapshot(source)
     opencode_detected = any(log_path.with_name(name).exists() for name in
                             (".opencode_session_id", "opencode_events.jsonl", "opencode_stderr.log"))
     thread_usage: dict[str, dict[str, int] | None] = {}
@@ -200,21 +206,30 @@ def extract_token_counts(log_path: Path) -> dict[str, int]:
     }
 
 
-def extract_raw_cost_tokens(run_folder: str | Path) -> list[dict[str, Any]]:
-    """Return token counts for attempted games in alias order, including failed setup."""
+def extract_raw_cost_tokens(
+    run_folder: str | Path, *, readable: Callable[[Path], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Return counts for attempted games. For partial archives, pass a file predicate
+    to skip unavailable inputs and warn about individual sessions that fail to parse.
+    """
     run_folder = Path(run_folder).expanduser().resolve()
     records = []
-    for log_path in game_server_logs(run_folder):
-        session = read_session(log_path)
-        environment_id = session[1] if session is not None else read_start_attempt(log_path)
-        if environment_id is None:
+    for log_path in game_server_logs(run_folder, required=readable is None):
+        if readable is not None and not readable(log_path):
             continue
         game_folder = log_path.parent.parent
-        records.append({
-            **extract_token_counts(game_folder / "run" / "agent.log"),
-            "environment_id": environment_id,
-            "run_folder": str(game_folder),
-        })
+        try:
+            session = read_session(log_path)
+            environment_id = session[1] if session is not None else read_start_attempt(log_path)
+            if environment_id is None:
+                continue
+            counts = extract_token_counts(game_folder / "run" / "agent.log", readable=readable)
+        except (OSError, ValueError) as exc:
+            if readable is None:
+                raise
+            print(f"Warning: skipping token counts for {game_folder}: {exc}", file=sys.stderr)
+            continue
+        records.append({**counts, "environment_id": environment_id, "run_folder": str(game_folder)})
     return records
 
 

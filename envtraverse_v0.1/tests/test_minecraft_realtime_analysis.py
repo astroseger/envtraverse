@@ -45,6 +45,12 @@ class MinecraftAnalysisTests(unittest.TestCase):
         path.write_text("".join(json.dumps(value) + "\n" for value in values), encoding="utf-8")
         return path
 
+    def server_start(self, alias):
+        path = self.root / "run" / alias / "server/server.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("2026-11-19T16:04:34+0000 INFO [MainThread] env-server.server: "
+                        f"starting requested_game_id={alias} game_id=kill_zombie\n", encoding="utf-8")
+
     def metadata(self, task="kill_zombie", **extra):
         value = {
             "session_id": SESSION,
@@ -168,8 +174,35 @@ class MinecraftAnalysisTests(unittest.TestCase):
         runner.write_text("INFO arc-runner: runner finished exit_code=0\n")
         game = self.game()
         self.assertEqual(game["outcome"], "unknown")
-        for name in ("deaths", "respawns", "kills", "crafted", "accepted_actions"):
+        for name in ("deaths", "respawns", "kills", "crafted", "accepted_actions", "cost_tokens"):
             self.assertIsNone(game[name], name)
+        self.assertTrue(analysis.render_report([game]).splitlines()[2].endswith("| ? |"))
+
+    def test_cost_tokens_are_per_session_and_displayed_in_millions(self):
+        self.metadata()
+        self.server_start(SESSION)
+        self.write_lines(f"run/{SESSION}/run/agent.log", [
+            {"type": "thread.started", "thread_id": "main"},
+            {"type": "turn.completed", "usage": {
+                "input_tokens": 12_000_000, "cached_input_tokens": 6_000_000, "output_tokens": 150_000}},
+        ])
+        other = "b" * 32
+        self.server_start(other)
+        self.write_lines(f"run/{other}/run/agent.log", [
+            {"type": "thread.started", "thread_id": "main"},
+            {"type": "turn.completed", "usage": {"output_tokens": 500_000}},
+        ])
+        missing = "c" * 32
+        self.server_start(missing)
+
+        games = analysis.analyze_run(self.root)
+        self.assertEqual({g["session_id"]: g["cost_tokens"] for g in games},
+                         {SESSION: 1_250_000, other: 500_000, missing: None})
+        header, _, first, second, third = analysis.render_report(games).splitlines()[:5]
+        self.assertTrue(header.endswith("| Cost tokens (M) |"))
+        self.assertTrue(first.endswith("| 1.25 |"))
+        self.assertTrue(second.endswith("| 0.50 |"))
+        self.assertTrue(third.endswith("| ? |"))
 
     def test_partial_jsonl_tail_preserves_valid_events_and_warns(self):
         self.metadata()
@@ -226,6 +259,10 @@ class MinecraftAnalysisTests(unittest.TestCase):
     def test_analysis_reads_only_output_directories_and_never_writes(self):
         self.metadata()
         self.result(success=True, reason="goal_achieved")
+        self.server_start(SESSION)
+        log = self.write_lines(f"run/{SESSION}/run/agent.log", [])
+        snapshot = self.write_json("outside.json", {})
+        log.with_name("opencode_usage.json").symlink_to(snapshot)
         real_open = io.open
 
         def guarded_open(file, mode="r", *args, **kwargs):
@@ -237,7 +274,9 @@ class MinecraftAnalysisTests(unittest.TestCase):
             return real_open(file, mode, *args, **kwargs)
 
         with patch("io.open", side_effect=guarded_open):
-            self.assertEqual(self.game()["outcome"], "completed")
+            game = self.game()
+        self.assertEqual(game["outcome"], "completed")
+        self.assertIsNone(game["cost_tokens"])
 
 
 if __name__ == "__main__":

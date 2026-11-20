@@ -186,6 +186,11 @@ It does not replay tasks or rerun verification. See the
 
 Run `python3 minecraft_realtime/analysis_v1.py /path/to/experiment` for task outcomes and gameplay statistics (`--json` for JSON), or `python3 minecraft_realtime/make_videos_v1.py /path/to/experiment --fps 30` to render MP4s in `run_mc/videos/` (requires ffmpeg; defaults to 30 FPS, one saved image per video frame; use `--overwrite` to replace videos).
 
+The report calls `extract_raw_cost_tokens` once for the run and matches its
+records by session alias. The main table shows normalized cost tokens in millions.
+JSON includes the unrounded `cost_tokens` value. Sessions without a cost record
+show `?` in the table and `null` in JSON.
+
 ## Report versions and cost conventions
 
 The scripts retain two report formats:
