@@ -13,7 +13,7 @@ environment_parameters:
   width: 960
   height: 540
   capture_fps: 15
-  render_fps: 15
+  render_fps: 10
   record_fps: 1
   startup_timeout_seconds: 600
 mem_disk_mounts:

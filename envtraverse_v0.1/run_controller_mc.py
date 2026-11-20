@@ -16,6 +16,7 @@ import time
 import yaml
 
 from src.controller import run_funs as rf
+from src.server.environments.minecraft_realtime.game.client.options import validate_render_fps
 from src.server.environments.minecraft_realtime.images import DEFAULT_IMAGES, inspect_images, pin_images
 
 ROOT = rf.ROOT
@@ -107,6 +108,9 @@ def run_experiment(source_root: Path, run_config: Path, *, paths=None,
         raise RuntimeError("Minecraft requires EULA acceptance; use --accept-eula after accepting https://www.minecraft.net/eula")
     if type(spectator_port) is not int or not 0 <= spectator_port <= 65535:
         raise RuntimeError("spectator_port must be between 0 and 65535")
+    parameters = config.get("environment_parameters", {})
+    if isinstance(parameters, dict) and "render_fps" in parameters:
+        validate_render_fps(parameters["render_fps"])
 
     host = source_root / "src/server/environments/minecraft_realtime/host_runtime"
     setup = runtime = controller = output_thread = None
@@ -189,7 +193,7 @@ def main(argv=None):
                               accept_eula=args.accept_eula, skip_build=args.skip_build,
                               rebuild_images=args.rebuild_images,
                               spectator_port=args.spectator_port)
-    except (OSError, RuntimeError, yaml.YAMLError) as exc:
+    except (OSError, RuntimeError, ValueError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

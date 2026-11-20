@@ -92,8 +92,8 @@ yourself in experiment configuration.
 | `hardcore` | `false` | Requires hard difficulty; normal death/respawn otherwise allowed |
 | `seed` | `123456` | Signed 64-bit world seed; recorded with the attempt |
 | `width`, `height` | `960`, `540` | Frame dimensions and mouse-coordinate bounds |
-| `capture_fps` | `30` | Target frame publication rate |
-| `render_fps` | `60` | Client rendering limit |
+| `capture_fps` | `30` | Target rate for sampling the display. Capture runs independently and can repeat or skip rendered frames. |
+| `render_fps` | `60` | Integer multiples of 10 from `10` through `250` cap client rendering. `260` selects unlimited rendering. |
 | `record_fps` | `1` | JPEG archive rate; `0` disables frame archival |
 | `startup_timeout_seconds` | `600` | Separate budget for Minecraft startup/downloads |
 

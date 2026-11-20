@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass, fields
 import math
 from typing import Any
 
+from .game.client.options import validate_render_fps
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -33,7 +35,8 @@ class Settings:
             raise ValueError("record_fps must be between zero and capture_fps")
         if self.capture_fps < 1:
             raise ValueError("capture_fps must be between 1 and 60")
-        for name, minimum, maximum in (("width", 320, 3840), ("height", 240, 2160), ("render_fps", 1, 260)):
+        validate_render_fps(self.render_fps)
+        for name, minimum, maximum in (("width", 320, 3840), ("height", 240, 2160)):
             value = getattr(self, name)
             if type(value) is not int or not minimum <= value <= maximum:
                 raise ValueError(f"{name} must be an integer in [{minimum}, {maximum}]")

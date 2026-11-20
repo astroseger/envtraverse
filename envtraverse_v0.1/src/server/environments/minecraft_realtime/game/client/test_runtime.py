@@ -34,12 +34,22 @@ class RuntimeConfigTests(unittest.TestCase):
             options = Path(directory) / "minecraft" / "options.txt"
             options.parent.mkdir()
             options.write_text("mouseSensitivity:0.35\npauseOnLostFocus:true\nrawMouseInput:true\n")
-            runtime.configure_options()
+            with patch.dict(os.environ, {"RENDER_FPS": "260"}):
+                runtime.configure_options()
             updated = options.read_text()
+            self.assertIn("maxFps:260\n", updated)
             self.assertIn("mouseSensitivity:0.35\n", updated)
             self.assertIn("pauseOnLostFocus:false\n", updated)
             self.assertIn("rawMouseInput:false\n", updated)
             self.assertIn("skipMultiplayerWarning:true\n", updated)
+
+    def test_invalid_render_fps_rejected_before_writing_options(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(runtime, "DATA", Path(directory)):
+            for value in ("5", "15", "270", "15.5", "fast"):
+                with self.subTest(value=value), patch.dict(os.environ, {"RENDER_FPS": value}):
+                    with self.assertRaisesRegex(ValueError, "(?i)render_fps"):
+                        runtime.configure_options()
+            self.assertFalse((Path(directory) / "minecraft/options.txt").exists())
 
 
 class AssetPreparationTests(unittest.TestCase):

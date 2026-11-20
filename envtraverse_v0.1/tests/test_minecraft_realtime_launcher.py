@@ -41,6 +41,14 @@ def test_wrapper_requires_eula_before_starting_any_process(tmp_path, monkeypatch
         mc.run_experiment(ROOT, config, paths=rf.RunPaths(tmp_path))
 
 
+def test_wrapper_reports_invalid_render_fps_before_image_preparation(tmp_path, monkeypatch, capsys):
+    config = tmp_path / "run_config.yaml"
+    config.write_text("environment: minecraft_realtime\nenvironment_parameters:\n  render_fps: 15\n")
+    monkeypatch.setattr(mc, "needs_image_build", lambda **kw: pytest.fail("unexpected image preparation"))
+    assert mc.main(["--run-root", str(tmp_path), "--accept-eula"]) == 1
+    assert "render_fps must be an integer multiple of 10" in capsys.readouterr().err
+
+
 def test_wrapper_drains_runtime_after_controller(tmp_path, monkeypatch):
     config = tmp_path / "config.yaml"
     config.write_text("environment: minecraft_realtime\n")

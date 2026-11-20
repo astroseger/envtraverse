@@ -49,6 +49,19 @@ def test_settings_reject_invalid_values(settings):
         Settings.from_dict(settings)
 
 
+@pytest.mark.parametrize("value", [0, 5, 15, 255, 270, 20.0, "20", True])
+def test_render_fps_rejects_unsupported_values(value):
+    with pytest.raises(ValueError, match="render_fps must be an integer multiple of 10"):
+        Settings.from_dict({"render_fps": value})
+
+
+@pytest.mark.parametrize("value", [10, 20, 250, 260])
+def test_render_fps_accepts_supported_values_independently_of_capture_rate(value):
+    settings = Settings.from_dict({"render_fps": value, "capture_fps": 15.5})
+    assert settings.render_fps == value
+    assert settings.capture_fps == 15.5
+
+
 class FakeClient:
     socket_path = "/unused/runtime.sock"
 

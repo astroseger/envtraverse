@@ -18,6 +18,7 @@ import time
 import uuid
 
 from .install_assets import cached_assets_ready
+from .options import configured_render_fps
 
 
 DATA = Path(os.environ.get("CLIENT_DATA_DIR", "/data/client"))
@@ -79,7 +80,7 @@ def configure_options() -> None:
         "pauseOnLostFocus": "false", "rawMouseInput": "false",
         "fullscreen": "false", "overrideWidth": str(width),
         "overrideHeight": str(height), "renderDistance": "6",
-        "simulationDistance": "6", "maxFps": os.getenv("RENDER_FPS", "30"),
+        "simulationDistance": "6", "maxFps": str(configured_render_fps()),
         "enableVsync": "false", "graphicsMode": "0", "cloudStatus": "0",
         "particles": "2", "tutorialStep": "none", "onboardAccessibility": "false",
         "skipMultiplayerWarning": "true", "autoJump": "false",
@@ -278,7 +279,12 @@ def main() -> int:
             # For example: docker compose run --rm --no-deps client auth login --no-browser
             os.execvp("portablemc", launcher_base() + sys.argv[1:])
         if sys.argv[1:] == ["check"]:
-            print(json.dumps({"command": launch_command(), "resolution": dimensions()}))
+            try:
+                configured_render_fps()
+                config = {"command": launch_command(), "resolution": dimensions()}
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from None
+            print(json.dumps(config))
             return 0
         raise SystemExit("Usage: client.runtime [auth <login|list|refresh|forget> [options] | check]")
     runtime = Runtime()
