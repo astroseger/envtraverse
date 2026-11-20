@@ -8,5 +8,5 @@
 # Account reservation files persist after the OS lock is released.
 /codex_accounts/.*.codex.lock
 
-# Life Minecraft experiment output
+# Real-Time Minecraft experiment output
 /run_mc/

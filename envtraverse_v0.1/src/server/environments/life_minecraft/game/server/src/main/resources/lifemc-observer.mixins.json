@@ -1,7 +1,0 @@
-{
-  "required": true,
-  "package": "io.lifemc.observer.mixin",
-  "compatibilityLevel": "JAVA_21",
-  "mixins": ["DragonFightMixin", "CraftingResultMixin"],
-  "injectors": {"defaultRequire": 1}
-}

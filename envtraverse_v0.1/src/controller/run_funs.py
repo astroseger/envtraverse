@@ -425,7 +425,7 @@ def parse_environment_config(
             raise RuntimeError(f"duplicate environment variable: {name_in_environment}")
         seen_variables.add(name_in_environment)
 
-    if name in {"terminal_bench", "life_minecraft"} and "session_id" in parameters:
+    if name in {"terminal_bench", "minecraft_realtime"} and "session_id" in parameters:
         raise RuntimeError(f"{name} session_id is assigned separately to each game by the controller")
 
     mounts = []
@@ -450,7 +450,7 @@ def parse_environment_config(
         source_path = (paths.root / source).resolve()
         if not source_path.is_dir():
             message = f"Server mount source directory does not exist: {source_path}"
-            if name in {"terminal_bench", "life_minecraft"}:
+            if name in {"terminal_bench", "minecraft_realtime"}:
                 message += (
                     "\nPlease run the host runtime first in a separate terminal: "
                     f"{ENVIRONMENTS_DIR / name / 'host_runtime/run.sh'} "
@@ -860,7 +860,7 @@ def docker_server_command(
         command.extend(["-e", mv.RESOURCE_ENVIRONMENT_VARIABLE + "=" + json.dumps(resources)])
 
     parameters = dict(environment.parameters)
-    if environment.name in {"terminal_bench", "life_minecraft"}:
+    if environment.name in {"terminal_bench", "minecraft_realtime"}:
         parameters["session_id"] = game_alias
 
     command.extend([

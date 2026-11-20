@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "minecraft_realtime_observer",
+  "version": "0.1.0",
+  "name": "Real-Time Minecraft server observer",
+  "description": "Server-only, read-only evaluation telemetry for real-time visual agents.",
+  "environment": "server",
+  "entrypoints": {"main": ["io.minecraftrealtime.observer.ObserverMod"]},
+  "mixins": ["minecraft-realtime-observer.mixins.json"],
+  "depends": {"fabricloader": ">=0.16.10", "minecraft": "1.21.1", "java": ">=21", "fabric-api": "*"}
+}

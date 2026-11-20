@@ -27,7 +27,7 @@ processes. It does not push unsolicited observations to the agent.
 | [agimaze_single](agimaze_single/README.md) | One labyrinth; manages a local engine subprocess |
 | [agimaze_set_v1](agimaze_set_v1/README.md) | An ordered sequence of labyrinths in one session |
 | [terminal_bench](terminal_bench/README.md) | Terminal tasks backed by a separate host runtime |
-| [life_minecraft](life_minecraft/README.md) | Real-time Minecraft survival, visual controls, and formal tasks |
+| [minecraft_realtime](minecraft_realtime/README.md) | Real-time Minecraft survival, visual controls, and formal tasks |
 
 For commands and configurations, see
 [Running experiments](../../../docs/running/README.md#choose-an-environment).

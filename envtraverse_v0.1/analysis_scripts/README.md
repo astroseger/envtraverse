@@ -5,7 +5,7 @@ produce reports. Run the examples from this directory. See
 [Running experiments](../docs/running/README.md) for setup and execution examples.
 
 Most commands take a run directory such as `/path/to/experiment/run`.
-The Terminal-Bench and Life Minecraft reports take the **parent experiment
+The Terminal-Bench and Real-Time Minecraft reports take the **parent experiment
 directory**, containing `run/` and respectively `run_tb/` or `run_mc/`.
 
 Extraction and replay refresh derived JSON files in the run directory. Keep the
@@ -182,9 +182,9 @@ diagnostic, separate from the verifier reward.
 It does not replay tasks or rerun verification. See the
 [Terminal-Bench guide](../README_tb.md) for runtime shutdown and grading.
 
-## Life Minecraft
+## Real-Time Minecraft
 
-Run `python3 life_minecraft/analysis_v1.py /path/to/experiment` for task outcomes and gameplay statistics (`--json` for JSON), or `python3 life_minecraft/make_videos_v1.py /path/to/experiment --fps 30` to render MP4s in `run_mc/videos/` (requires ffmpeg; defaults to 30 FPS, one saved image per video frame; use `--overwrite` to replace videos).
+Run `python3 minecraft_realtime/analysis_v1.py /path/to/experiment` for task outcomes and gameplay statistics (`--json` for JSON), or `python3 minecraft_realtime/make_videos_v1.py /path/to/experiment --fps 30` to render MP4s in `run_mc/videos/` (requires ffmpeg; defaults to 30 FPS, one saved image per video frame; use `--overwrite` to replace videos).
 
 ## Report versions and cost conventions
 

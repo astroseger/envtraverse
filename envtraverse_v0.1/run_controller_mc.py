@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build/start the Life Minecraft host runtime, run EnvTraverse, then clean up."""
+"""Build/start the Real-Time Minecraft host runtime, run EnvTraverse, then clean up."""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ import time
 import yaml
 
 from src.controller import run_funs as rf
-from src.server.environments.life_minecraft.images import DEFAULT_IMAGES, inspect_images, pin_images
+from src.server.environments.minecraft_realtime.images import DEFAULT_IMAGES, inspect_images, pin_images
 
 ROOT = rf.ROOT
 
@@ -101,14 +101,14 @@ def run_experiment(source_root: Path, run_config: Path, *, paths=None,
             raise RuntimeError(f"Run folder already exists: {directory}")
     with run_config.open(encoding="utf-8") as source:
         config = yaml.safe_load(source)
-    if not isinstance(config, dict) or config.get("environment") != "life_minecraft":
-        raise RuntimeError("The run configuration must select environment: life_minecraft")
+    if not isinstance(config, dict) or config.get("environment") != "minecraft_realtime":
+        raise RuntimeError("The run configuration must select environment: minecraft_realtime")
     if not accept_eula and os.environ.get("EULA", "").lower() != "true":
         raise RuntimeError("Minecraft requires EULA acceptance; use --accept-eula after accepting https://www.minecraft.net/eula")
     if type(spectator_port) is not int or not 0 <= spectator_port <= 65535:
         raise RuntimeError("spectator_port must be between 0 and 65535")
 
-    host = source_root / "src/server/environments/life_minecraft/host_runtime"
+    host = source_root / "src/server/environments/minecraft_realtime/host_runtime"
     setup = runtime = controller = output_thread = None
     shutdown = ShutdownRequest()
     previous = {}

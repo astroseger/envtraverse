@@ -210,7 +210,7 @@ External runtimes can use the server's `ENVTRAVERSE_RESOURCES` JSON context
 externally owned resources. The controller retries removal after games stop and
 for up to two minutes at run shutdown, then reports any leftovers in `runner.log`.
 Their contents are temporary; keep recordings and results on persistent storage.
-Life Minecraft uses `/latest_frame/latest_frame.jpg` when this mount is configured.
+Real-Time Minecraft uses `/latest_frame/latest_frame.jpg` when this mount is configured.
 
 ## Choose a run root
 
