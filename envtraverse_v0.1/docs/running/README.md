@@ -172,6 +172,11 @@ settings. Custom agents may accept additional settings or structured values.
 Keep `agent_docker_build_args` and `runner` resource limits outside
 `agent_parameters`.
 
+For `agent_v1_08_wstop3`, set `agent_parameters.additional_prompt_text` to insert
+text after `main_prompt.md` in the initial message and after `continuation.txt`
+in each normal continuation. The agent inserts the string verbatim with a blank
+line on each side. Omit the key or set it to `""` to use the original messages.
+
 If you are reusing a configuration written for an earlier version, see
 [Using older configurations](#using-older-configurations).
 

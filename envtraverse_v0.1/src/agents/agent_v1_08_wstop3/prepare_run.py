@@ -27,6 +27,10 @@ def prepare_run(
         if not isinstance(value, str) or not value:
             raise RuntimeError(f"{name} is required in run config and must be a non-empty string")
 
+    additional_prompt_text = parsed_run_config.get("additional_prompt_text", "")
+    if not isinstance(additional_prompt_text, str):
+        raise RuntimeError("agent_parameters.additional_prompt_text must be a string")
+
     recovery_delay_seconds = parsed_run_config.get("recovery_delay_seconds", 0)
     delay_error = "recovery_delay_seconds in run config must be a finite, non-negative number of seconds"
     if isinstance(recovery_delay_seconds, bool) or not isinstance(recovery_delay_seconds, (int, float)):
@@ -78,6 +82,9 @@ def prepare_run(
         return ignored.intersection(names)
 
     shutil.copytree(AGENT_SOURCE_DIR, agent_run_dir, ignore=ignore_agent_files)
+    if additional_prompt_text:
+        prompt_path = agent_run_dir / "prompts" / "additional_prompt_text.txt"
+        prompt_path.write_bytes(additional_prompt_text.encode("utf-8"))
     if initial_files_dir is not None:
         shutil.copytree(initial_files_dir, agent_run_dir / "workspace_init", dirs_exist_ok=True)
     shutil.copytree(AGENT_SOURCE_DIR / "client", client_dir, ignore=shutil.ignore_patterns("__pycache__"))

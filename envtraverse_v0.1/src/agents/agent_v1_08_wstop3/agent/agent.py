@@ -149,6 +149,10 @@ class SimpleAgent:
             "stuck_reminder_prompt.txt",
             self.logger,
         )
+        additional_prompt_path = PROMPT_DIR / "additional_prompt_text.txt"
+        self.additional_prompt_text = (
+            additional_prompt_path.read_bytes().decode("utf-8") if additional_prompt_path.is_file() else ""
+        )
 
     def validate_environment_description(self) -> None:
         # The client saves the server-provided description when it starts the game.
@@ -164,13 +168,16 @@ class SimpleAgent:
         game_init_screenout = self.run_client(f"start {self.game_name}")
         self.start_codex_session(game_init_screenout)
 
+    def _with_continuation_string(self, prompt: str, default_separator: str) -> str:
+        if self.additional_prompt_text:
+            return "\n\n".join((prompt, self.additional_prompt_text, self.continuation_string))
+        return prompt + default_separator + self.continuation_string
+
     def start_codex_session(self, game_init_screenout: str) -> None:
         self.validate_environment_description()
         self.runner.new_session()
         initial_prompt = (
-            self.main_prompt
-            + "\n\n"
-            + self.continuation_string
+            self._with_continuation_string(self.main_prompt, default_separator="\n\n")
             + "\n\nThe initial output of the game client:\n"
             + game_init_screenout
         )
@@ -232,7 +239,7 @@ class SimpleAgent:
         return False
 
     def continuation_prompt(self) -> str:
-        return self.normal_continuation_prompt + "\n" + self.continuation_string
+        return self._with_continuation_string(self.normal_continuation_prompt, default_separator="\n")
 
     def normal_continuation_protocol(self) -> None:
         self.logger.info("selected protocol", extra={"protocol": "normal_continuation_protocol"})

@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import yaml
 
@@ -27,6 +27,62 @@ BACKENDS = (rb.CODEX_CHATGPT, rb.CODEX_API_KEY)
 
 
 class AgentPreparationTest(unittest.TestCase):
+    def test_wstop3_additional_prompt_text_from_run_config(self) -> None:
+        agent_name = "agent_v1_08_wstop3"
+        prompts = ROOT / "src/agents" / agent_name / "agent/prompts"
+
+        def template(name: str) -> str:
+            return (prompts / name).read_text(encoding="utf-8").strip()
+
+        text = "  Compare both routes.\n\n  Keep the α marker.\r\nLast line.  "
+        block = "\n\n" + text + "\n\n"
+        screen = "client output\n"
+        for settings, initial_separator, normal_separator in (
+            ({}, "\n\n", "\n"),
+            ({"additional_prompt_text": ""}, "\n\n", "\n"),
+            ({"additional_prompt_text": text}, block, block),
+        ):
+            with self.subTest(settings=settings), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                config_path = root / "run.yaml"
+                config_path.write_text(yaml.safe_dump({
+                    "agent": agent_name, "backend": rb.CODEX_API_KEY, "environment": "example", "games": ["counter"],
+                    "agent_parameters": {"model": "test-model", "reasoning_effort": "medium", **settings},
+                }), encoding="utf-8")
+                config = controller.parse_run_config(config_path, paths=rf.RunPaths(root))
+                rf.prepare_agent_run(config.agent, root, "http://server:8879", "alias", config.agent_parameters)
+
+                # Import the per-game copy just as its supervisor does.
+                runtime_dir = root / "run"
+                with patch.dict(sys.modules), patch.object(sys, "path", [str(runtime_dir), *sys.path]):
+                    for name in ("agent", "agent_funs", "codex_runner", "session_inspector"):
+                        sys.modules.pop(name, None)
+                    runtime = importlib.import_module("agent")
+
+                with patch.object(runtime, "setup_logger"), patch.object(runtime, "CodexRunner") as runner:
+                    subject = runtime.SimpleAgent(runtime_dir / "agent_run")
+                    with patch.object(subject, "validate_environment_description"):
+                        subject.start_codex_session(screen)
+                    subject.normal_continuation_protocol()
+                    subject.stuck_protocol()
+
+                tail = template("continuation_string.txt")
+                self.assertEqual(runner.return_value.send.call_args_list, [
+                    call(template("main_prompt.md") + initial_separator + tail
+                         + "\n\nThe initial output of the game client:\n" + screen),
+                    call(template("continuation.txt") + normal_separator + tail),
+                    call(template("stuck_reminder_prompt.txt")),
+                ])
+
+    def test_wstop3_rejects_non_string_prompt_text_before_creating_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "additional_prompt_text must be a string"):
+                rf.prepare_agent_run("agent_v1_08_wstop3", root, "http://server:8879", "alias", {
+                    "model": "test-model", "reasoning_effort": "medium", "additional_prompt_text": False,
+                })
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_agent_v1_uses_configured_settings_and_does_not_expose_the_run_config(self) -> None:
         for settings, model, effort in (
             ({"model": "gpt-5.5", "reasoning_effort": "medium"}, "gpt-5.5", "medium"),
